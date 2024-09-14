@@ -18,14 +18,16 @@ package curvefsdriver
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
-	"github.com/opencurve/curvefs-csi/pkg/csicommon"
-	"github.com/opencurve/curvefs-csi/pkg/util"
+	"github.com/jackblack369/curvefs-csi/pkg/csicommon"
+	"github.com/jackblack369/curvefs-csi/pkg/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/mount"
 )
 
@@ -48,13 +50,47 @@ func (ns *nodeServer) NodePublishVolume(
 	if !util.ValidateCharacter([]string{targetPath}) {
 		return nil, status.Errorf(codes.InvalidArgument, "Illegal TargetPath: %s", targetPath)
 	}
-
-	isNotMounted, _ := mount.IsNotMountPoint(ns.mounter, targetPath)
+	mountPath := filepath.Join(PodMountBase, volumeID)
+	isNotMounted, _ := mount.IsNotMountPoint(ns.mounter, mountPath)
 	if !isNotMounted {
-		klog.V(5).Infof("%s is already mounted", targetPath)
+		klog.V(5).Infof("%s is already mounted", mountPath)
 		return &csi.NodePublishVolumeResponse{}, nil
 	}
-	err := util.CreatTargetPath(targetPath)
+	err := util.CreatePath(mountPath)
+	if err != nil {
+		return nil, status.Errorf(
+			codes.Internal,
+			"Failed to create mount point path %s, err: %v",
+			mountPath,
+			err,
+		)
+	}
+
+	curvefsMounter := NewCurvefsMounter()
+	mountUUID := uuid.New().String()
+
+	klog.V(1).Infof("mountPath: %s", mountPath)
+	err = curvefsMounter.MountFs(volumeID, mountPath, req.GetVolumeContext(),
+		req.GetVolumeCapability().GetMount(), mountUUID)
+	if err != nil {
+		return nil, status.Errorf(
+			codes.Internal,
+			"Failed to mount dingofs by mount point [ %s ], err: %v",
+			volumeID,
+			err,
+		)
+	}
+
+	isNotMounted, _ = mount.IsNotMountPoint(ns.mounter, mountPath)
+	if isNotMounted {
+		return nil, status.Errorf(
+			codes.Internal,
+			"Mount check failed, mountPath: %s",
+			mountPath,
+		)
+	}
+
+	err = util.CreatePath(targetPath)
 	if err != nil {
 		return nil, status.Errorf(
 			codes.Internal,
@@ -64,29 +100,23 @@ func (ns *nodeServer) NodePublishVolume(
 		)
 	}
 
-	curvefsMounter := NewCurvefsMounter()
-	mountUUID := uuid.New().String()
-	err = curvefsMounter.MountFs(volumeID, targetPath, req.GetVolumeContext(),
-		req.GetVolumeCapability().GetMount(), mountUUID)
-	if err != nil {
+	ns.mountRecord[targetPath] = mountUUID
+
+	// bind mount point to target path
+	if err := ns.mounter.Mount(mountPath, targetPath, "none", []string{"bind"}); err != nil {
+		err := os.Remove(targetPath)
+		if err != nil {
+			return nil, err
+		}
 		return nil, status.Errorf(
 			codes.Internal,
 			"Failed to mount %s to %s, err: %v",
-			volumeID,
+			mountPath,
 			targetPath,
 			err,
 		)
 	}
 
-	isNotMounted, _ = mount.IsNotMountPoint(ns.mounter, targetPath)
-	if isNotMounted {
-		return nil, status.Errorf(
-			codes.Internal,
-			"Mount check failed, targetPath: %s",
-			targetPath,
-		)
-	}
-	ns.mountRecord[targetPath] = mountUUID
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 

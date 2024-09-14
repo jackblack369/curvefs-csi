@@ -35,10 +35,10 @@ func ValidateCharacter(inputs []string) bool {
 	return true
 }
 
-func CreatTargetPath(targetPath string) error {
-	fi, err := os.Lstat(targetPath)
+func CreatePath(path string) error {
+	fi, err := os.Lstat(path)
 	if os.IsNotExist(err) {
-		if err := os.MkdirAll(targetPath, 0777); err != nil {
+		if err := os.MkdirAll(path, 0777); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -46,7 +46,7 @@ func CreatTargetPath(targetPath string) error {
 	}
 
 	if fi != nil && !fi.IsDir() {
-		return fmt.Errorf("TargetPath %s already exists but not dir", targetPath)
+		return fmt.Errorf("Path %s already exists but not dir", path)
 	}
 	return nil
 }

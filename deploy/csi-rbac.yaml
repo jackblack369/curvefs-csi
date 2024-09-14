@@ -2,19 +2,19 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: curvefs
+  name: dingofs
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: curvefs-csi-service-account
-  namespace: curvefs
+  name: dingofs-csi-service-account
+  namespace: dingofs
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: curvefs-csi-cluster-role
-  namespace: curvefs
+  name: dingofs-csi-cluster-role
+  namespace: dingofs
 rules:
   - apiGroups: [ "" ]
     resources: [ "persistentvolumes" ]
@@ -38,22 +38,22 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: curvefs-csi-cluster-role-binding
-  namespace: curvefs
+  name: dingofs-csi-cluster-role-binding
+  namespace: dingofs
 subjects:
   - kind: ServiceAccount
-    name: curvefs-csi-service-account
-    namespace: curvefs
+    name: dingofs-csi-service-account
+    namespace: dingofs
 roleRef:
   kind: ClusterRole
-  name: curvefs-csi-cluster-role
+  name: dingofs-csi-cluster-role
   apiGroup: rbac.authorization.k8s.io
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: curvefs-csi-role
-  namespace: curvefs
+  name: dingofs-csi-role
+  namespace: dingofs
 rules:
   - apiGroups: [ "" ]
     resources: [ "endpoints" ]
@@ -68,14 +68,14 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: curvefs-csi-role-binding
-  namespace: curvefs
+  name: dingofs-csi-role-binding
+  namespace: dingofs
 subjects:
   - kind: ServiceAccount
-    name: curvefs-csi-service-account
-    namespace: curvefs
+    name: dingofs-csi-service-account
+    namespace: dingofs
 roleRef:
   kind: Role
-  name: curvefs-csi-role
+  name: dingofs-csi-role
   apiGroup: rbac.authorization.k8s.io
 ---

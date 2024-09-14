@@ -19,13 +19,13 @@ package curvefsdriver
 import (
 	"context"
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/opencurve/curvefs-csi/pkg/csicommon"
-	"github.com/opencurve/curvefs-csi/pkg/util"
+	"github.com/jackblack369/curvefs-csi/pkg/csicommon"
+	"github.com/jackblack369/curvefs-csi/pkg/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 type controllerServer struct {

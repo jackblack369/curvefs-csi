@@ -1,25 +1,25 @@
 kind: DaemonSet
 apiVersion: apps/v1
 metadata:
-  name: curvefs-csi-node
-  namespace: curvefs
+  name: dingofs-csi-node
+  namespace: dingofs
 spec:
   updateStrategy:
     type: OnDelete
   selector:
     matchLabels:
-      app: curvefs-csi-node
+      app: dingofs-csi-node
   template:
     metadata:
       labels:
-        app: curvefs-csi-node
+        app: dingofs-csi-node
     spec:
-      serviceAccount: curvefs-csi-service-account
+      serviceAccountName: dingofs-csi-service-account
       nodeSelector:
-        curvefs-csi-node: enabled
+        dingofs-csi-node: enabled
       containers:
         - name: csi-node-driver-registrar
-          image: quay.io/k8scsi/csi-node-driver-registrar:v1.3.0
+          image: quay.io/k8scsi/csi-node-driver-registrar:v2.9.0
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true
@@ -32,7 +32,7 @@ spec:
             - name: ADDRESS
               value: /csi/csi.sock
             - name: DRIVER_REG_SOCK_PATH
-              value: /var/lib/kubelet/plugins/csi.curvefs.com/csi.sock
+              value: /var/lib/kubelet/plugins/csi.dingofs.com/csi.sock
             - name: KUBE_NODE_NAME
               valueFrom:
                 fieldRef:
@@ -47,11 +47,8 @@ spec:
               name: socket-dir
             - mountPath: /registration
               name: registration-dir
-        - name: curvefs-driver
-          # Different back-end curve cluster using different image
-          # for v2.4.0-beta2:  curvecsi/curvefscsi:v1.0.1
-          # for v2.5.0-beta:  curvecsi/curvefscsi:v1.0.2
-          image: curvecsi/curvefscsi:v1.0.0
+        - name: dingofs-driver
+          image: harbor.zetyun.cn/dingofs/dingofscsi:v1.0.0
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true
@@ -89,7 +86,7 @@ spec:
               name: mountpoint-dir
       volumes:
         - hostPath:
-            path: /var/lib/kubelet/plugins/csi.curvefs.com
+            path: /var/lib/kubelet/plugins/csi.dingofs.com
             type: DirectoryOrCreate
           name: socket-dir
         - hostPath:

@@ -81,12 +81,21 @@ spec:
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
-            - mountPath: /var/lib/kubelet/pods
+            - mountPath: /var/lib/kubelet
               mountPropagation: Bidirectional
-              name: mountpoint-dir
-            - mountPath: /curvefs/client/data/cache
+              name: kubelet-dir
+            - mountPath: /dfs
               mountPropagation: Bidirectional
-              name: dingofs-diskcache
+              name: dingofs-dir
+            - mountPath: /curvefs/client/data/cache/1
+              mountPropagation: Bidirectional
+              name: dingofs-diskcache-1
+            - mountPath: /curvefs/client/data/cache/2
+              mountPropagation: Bidirectional
+              name: dingofs-diskcache-2
+            - mountPath: /curvefs/client/data/cache/3
+              mountPropagation: Bidirectional
+              name: dingofs-diskcache-3
       volumes:
         - hostPath:
             path: /var/lib/kubelet/plugins/csi.dingofs.com
@@ -97,11 +106,23 @@ spec:
             type: DirectoryOrCreate
           name: registration-dir
         - hostPath:
-            path: /var/lib/kubelet/pods
+            path: /var/lib/kubelet
             type: Directory
-          name: mountpoint-dir
+          name: kubelet-dir
         - hostPath:
-            path: /data/dingofs-diskcache
+            path: /mnt/dingofs/volume
+            type: DirectoryOrCreate
+          name: dingofs-dir
+        - hostPath:
+            path: /mnt/dc-1
             type: Directory
-          name: dingofs-diskcache
+          name: dingofs-diskcache-1
+        - hostPath:
+            path: /mnt/dc-2
+            type: Directory
+          name: dingofs-diskcache-2
+        - hostPath:
+            path: /mnt/dc-3
+            type: Directory
+          name: dingofs-diskcache-3
 

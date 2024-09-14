@@ -17,7 +17,7 @@ limitations under the License.
 package curvefsdriver
 
 import (
-	"github.com/opencurve/curvefs-csi/pkg/csicommon"
+	"github.com/jackblack369/curvefs-csi/pkg/csicommon"
 )
 
 type identityServer struct {
