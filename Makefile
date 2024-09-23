@@ -1,11 +1,11 @@
-CSI_IMAGE_NAME ?= curvecsi/curvefscsi
+CSI_IMAGE_NAME ?= dingofs/dingofscsi
 DRIVER_VERSION ?= v1.0.0
 LAST_COMMIT ?= $(shell git rev-parse --short HEAD)
 BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 IMAGE_TAG := $(CSI_IMAGE_NAME):$(DRIVER_VERSION)
 
-GO_PROJECT := github.com/opencurve/curvefs-csi
+GO_PROJECT := github.com/jackblack369/curvefs-csi
 
 LD_FLAGS ?=
 LD_FLAGS += -extldflags '-static'
@@ -19,10 +19,10 @@ BUILD_FLAG += -a
 .PHONY: csi docker-build docker-push clean
 csi: 
 	go mod vendor
-	go build $(BUILD_FLAG) -ldflags "$(LD_FLAGS)" -o bin/curvefs-csi-driver ./cmd/main.go
+	go build $(BUILD_FLAG) -ldflags "$(LD_FLAGS)" -o bin/dingofs-csi-driver ./cmd/main.go
 
 docker-build:
-	docker build -t $(IMAGE_TAG) .
+	docker build --no-cache --platform linux/amd64 -t $(IMAGE_TAG) .
 
 docker-push:
 	docker push $(IMAGE_TAG)

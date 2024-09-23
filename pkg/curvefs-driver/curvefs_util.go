@@ -18,10 +18,11 @@ package curvefsdriver
 
 import (
 	"fmt"
-	"io/ioutil"
+	"k8s.io/klog/v2"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -34,6 +35,8 @@ const (
 	toolPath                     = "/curvefs/tools/sbin/curvefs_tool"
 	clientPath                   = "/curvefs/client/sbin/curve-fuse"
 	cacheDirPrefix               = "/curvefs/client/data/cache/"
+	PodMountBase                 = "/dfs"
+	MountBase                    = "/var/lib/dfs"
 )
 
 type curvefsTool struct {
@@ -65,6 +68,7 @@ func (ct *curvefsTool) CreateFs(
 		arg := fmt.Sprintf("-%s=%s", k, v)
 		createFsArgs = append(createFsArgs, arg)
 	}
+	klog.V(1).Infof("create fs, createFsArgs: %v", createFsArgs)
 	createFsCmd := exec.Command(toolPath, createFsArgs...)
 	output, err := createFsCmd.CombinedOutput()
 	if err != nil {
@@ -181,7 +185,7 @@ func NewCurvefsMounter() *curvefsMounter {
 
 func (cm *curvefsMounter) MountFs(
 	fsname string,
-	targetPath string,
+	mountPath string,
 	params map[string]string,
 	mountOption *csi.VolumeCapability_MountVolume,
 	mountUUID string,
@@ -196,7 +200,6 @@ func (cm *curvefsMounter) MountFs(
 		confPath, err := cm.applyMountFlags(
 			cm.mounterParams["conf"],
 			mountOption.MountFlags,
-			targetPath,
 			mountUUID,
 		)
 		if err != nil {
@@ -227,7 +230,10 @@ func (cm *curvefsMounter) MountFs(
 			mountFsArgs = append(mountFsArgs, arg)
 		}
 	}
-	mountFsArgs = append(mountFsArgs, targetPath)
+
+	mountFsArgs = append(mountFsArgs, mountPath)
+
+	klog.V(3).Infof("curve-fuse mountFsArgs: %s", mountFsArgs)
 	mountFsCmd := exec.Command(clientPath, mountFsArgs...)
 	output, err := mountFsCmd.CombinedOutput()
 	if err != nil {
@@ -265,15 +271,16 @@ func (cm *curvefsMounter) UmountFs(targetPath string, mountUUID string) error {
 	return nil
 }
 
+// update the configuration file with the mount flags
 func (cm *curvefsMounter) applyMountFlags(
 	origConfPath string,
 	mountFlags []string,
-	targetPath string,
 	mountUUID string,
 ) (string, error) {
 	confPath := defaultClientExampleConfPath + "." + mountUUID
-	// read orig conf and append mount flags, then write to new conf path
-	data, err := ioutil.ReadFile(origConfPath)
+
+	// Step 1: Copy the original configuration file to a new file
+	data, err := os.ReadFile(origConfPath)
 	if err != nil {
 		return "", status.Errorf(
 			codes.Internal,
@@ -282,22 +289,7 @@ func (cm *curvefsMounter) applyMountFlags(
 			err,
 		)
 	}
-	cacheEnabled := false
-	data = append(data, "\n# begin of mount flags\n"...)
-	for _, flag := range mountFlags {
-		if flag == "diskCache.diskCacheType=2" || flag == "diskCache.diskCacheType=1" {
-			cacheEnabled = true
-		}
-		data = append(data, flag...)
-		data = append(data, "\n"...)
-	}
-	cacheDir := cacheDirPrefix + mountUUID
-	if cacheEnabled {
-		// overwrite cache dir config
-		data = append(data, "diskCache.cacheDir="+cacheDir+"\n"...)
-	}
-	data = append(data, "# end of mount flags\n"...)
-	err = ioutil.WriteFile(confPath, data, 0644)
+	err = os.WriteFile(confPath, data, 0644)
 	if err != nil {
 		return "", status.Errorf(
 			codes.Internal,
@@ -306,11 +298,91 @@ func (cm *curvefsMounter) applyMountFlags(
 			err,
 		)
 	}
+
+	// Step 2: Read the new configuration file
+	data, err = os.ReadFile(confPath)
+	if err != nil {
+		return "", status.Errorf(
+			codes.Internal,
+			"applyMountFlag: failed to read new conf %v",
+			confPath,
+			err,
+		)
+	}
+
+	// Step 3: Iterate over the mountFlags items
+	lines := strings.Split(string(data), "\n")
+	configMap := make(map[string]string)
+	for _, line := range lines {
+		if strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		configMap[parts[0]] = parts[1]
+	}
+
+	cacheEnabled := false
+	for _, flag := range mountFlags {
+		parts := strings.SplitN(flag, "=", 2)
+		if len(parts) == 2 {
+			configMap[parts[0]] = parts[1]
+			if parts[0] == "diskCache.diskCacheType" && (parts[1] == "2" || parts[1] == "1") {
+				cacheEnabled = true
+			}
+		}
+	}
+
+	// Step 4: Write the updated configuration back to the new file
+	var newData strings.Builder
+	for _, line := range lines {
+		if strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			newData.WriteString(line + "\n")
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if newValue, exists := configMap[parts[0]]; exists {
+			if parts[0] == "disk_cache.cache_dir" {
+				cacheDirs := strings.Split(newValue, ";")
+				cacheDirsWithUUID := make([]string, len(cacheDirs))
+				for i, cacheDir := range cacheDirs {
+					cacheDirParts := strings.SplitN(cacheDir, ":", 2)
+					if len(cacheDirParts) == 2 {
+						cacheDirsWithUUID[i] = fmt.Sprintf("%s/%s:%s", cacheDirParts[0], mountUUID, cacheDirParts[1])
+					} else {
+						cacheDirsWithUUID[i] = fmt.Sprintf("%s/%s", cacheDirParts[0], mountUUID)
+					}
+				}
+				newValue = strings.Join(cacheDirsWithUUID, ";")
+			}
+			newData.WriteString(fmt.Sprintf("%s=%s\n", parts[0], newValue))
+			delete(configMap, parts[0])
+		} else {
+			newData.WriteString(line + "\n")
+		}
+	}
+
+	// Write the remaining new configuration items
+	for key, value := range configMap {
+		newData.WriteString(fmt.Sprintf("%s=%s\n", key, value))
+	}
+
+	err = os.WriteFile(confPath, []byte(newData.String()), 0644)
+	if err != nil {
+		return "", status.Errorf(
+			codes.Internal,
+			"applyMountFlag: failed to write updated conf %v",
+			confPath,
+			err,
+		)
+	}
+
 	if cacheEnabled {
+		cacheDir := cacheDirPrefix + mountUUID
 		if err := os.MkdirAll(cacheDir, 0777); err != nil {
 			return "", err
 		}
 	}
+
 	return confPath, nil
 }
 

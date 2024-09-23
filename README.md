@@ -20,9 +20,9 @@ The Curvefs CSI Driver implements the CSI specification for container orchestrat
 
 1. add label to node
     ```bash
-    kubectl label node <nodename> curvefs-csi-controller=enabled
+    kubectl label node <nodename> dingofs-csi-controller=enabled
     # Add the following label for all node that your pod run on
-    kubectl label node <nodename> curvefs-csi-node=enabled
+    kubectl label node <nodename> dingofs-csi-node=enabled
     ```
 2. deploy csi driver
     ```bash
