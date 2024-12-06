@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: dynamic-dingofs-app
+  name: static-dingofs-app
   namespace: dingofs
 spec:
   containers:
@@ -19,4 +19,4 @@ spec:
   volumes:
   - name: dingofs-pv
     persistentVolumeClaim:
-      claimName: dynamic-pvc-1
+      claimName: static-pv-1
