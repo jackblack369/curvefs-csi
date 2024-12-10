@@ -19,11 +19,23 @@
 package util
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"hash/fnv"
+	"math/rand"
 	"os"
 	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/jackblack369/dingofs-csi/pkg/config"
 
 	"k8s.io/klog/v2"
 )
@@ -89,4 +101,137 @@ func KillProcess(pid int) error {
 	klog.Infof("killed process [%d] success !", pid)
 
 	return nil
+}
+
+func GenHashOfSetting(setting config.DfsSetting) string {
+	setting.TargetPath = ""
+	setting.VolumeId = ""
+	setting.SubPath = ""
+	settingStr, _ := json.Marshal(setting)
+	h := sha256.New()
+	h.Write(settingStr)
+	val := hex.EncodeToString(h.Sum(nil))[:63]
+	klog.Infof("get jfsSetting hash, hashVal:%s", val)
+	return val
+}
+
+var letterRunes = []rune("abcdefghijklmnopqrstuvwxyz")
+
+func RandStringRunes(n int) string {
+	b := make([]rune, n)
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := range b {
+		b[i] = letterRunes[r.Intn(len(letterRunes))]
+	}
+	return string(b)
+}
+
+func GetReferenceKey(target string) string {
+	h := sha256.New()
+	h.Write([]byte(target))
+	return fmt.Sprintf("dingofs-%x", h.Sum(nil))[:63]
+}
+
+func DoWithTimeout(parent context.Context, timeout time.Duration, f func() error) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	doneCh := make(chan error)
+	go func() {
+		doneCh <- f()
+	}()
+
+	select {
+	case <-parent.Done():
+		return parent.Err()
+	case <-timer.C:
+		return errors.New("function timeout")
+	case err := <-doneCh:
+		return err
+	}
+}
+
+// GetTimeAfterDelay get time which after delay
+func GetTimeAfterDelay(delayStr string) (string, error) {
+	delay, err := time.ParseDuration(delayStr)
+	if err != nil {
+		return "", err
+	}
+	delayAt := time.Now().Add(delay)
+	return delayAt.Format("2006-01-02 15:04:05"), nil
+}
+
+func GetTime(str string) (time.Time, error) {
+	return time.Parse("2006-01-02 15:04:05", str)
+}
+
+func StripPasswd(uri string) string {
+	p := strings.Index(uri, "@")
+	if p < 0 {
+		return uri
+	}
+	sp := strings.Index(uri, "://")
+	cp := strings.Index(uri[sp+3:], ":")
+	if cp < 0 || sp+3+cp > p {
+		return uri
+	}
+	return uri[:sp+3+cp] + ":****" + uri[p:]
+}
+
+// Each sync.Mutex in the array can be used to lock and unlock a specific resource,
+// ensuring that only one goroutine can access the resource at a time.
+var PodLocks [1024]sync.Mutex
+
+func GetPodLock(podHashVal string) *sync.Mutex {
+	h := fnv.New32a()
+	h.Write([]byte(podHashVal))
+	// This ensures that the same podHashVal will always map to the same sync.Mutex in the PodLocks array.
+	index := h.Sum32() % 1024
+	return &PodLocks[index]
+}
+
+func applyConfigPatch(setting *config.DfsSetting) {
+	attr := setting.Attr
+	// overwrite by mountpod patch
+	patch := GlobalConfig.GenMountPodPatch(*setting)
+	if patch.Image != "" {
+		attr.Image = patch.Image
+	}
+	if patch.HostNetwork != nil {
+		attr.HostNetwork = *patch.HostNetwork
+	}
+	if patch.HostPID != nil {
+		attr.HostPID = *patch.HostPID
+	}
+	for k, v := range patch.Labels {
+		attr.Labels[k] = v
+	}
+	for k, v := range patch.Annotations {
+		attr.Annotations[k] = v
+	}
+	if patch.Resources != nil {
+		attr.Resources = *patch.Resources
+	}
+	attr.Lifecycle = patch.Lifecycle
+	attr.LivenessProbe = patch.LivenessProbe
+	attr.ReadinessProbe = patch.ReadinessProbe
+	attr.StartupProbe = patch.StartupProbe
+	attr.TerminationGracePeriodSeconds = patch.TerminationGracePeriodSeconds
+	attr.VolumeDevices = patch.VolumeDevices
+	attr.VolumeMounts = patch.VolumeMounts
+	attr.Volumes = patch.Volumes
+	attr.Env = patch.Env
+
+	// merge or overwrite setting options
+	if setting.Options == nil {
+		setting.Options = make([]string, 0)
+	}
+	for _, option := range patch.MountOptions {
+		for i, o := range setting.Options {
+			if strings.Split(o, "=")[0] == option {
+				setting.Options = append(setting.Options[:i], setting.Options[i+1:]...)
+			}
+		}
+		setting.Options = append(setting.Options, option)
+	}
 }

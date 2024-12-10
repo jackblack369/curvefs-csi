@@ -636,3 +636,9 @@ func (cm *curvefsMounter) validateMountFsParams(params map[string]string) error 
 	}
 	return nil
 }
+
+// GetDfsID get fsId from result of `dingo query fs --fsname test1`
+func (ct *curvefsTool) GetDfsID(name string) (string, error) {
+	// todo get UUID from dingofs
+	return "", nil
+}
