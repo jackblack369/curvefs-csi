@@ -28,6 +28,7 @@ import (
 	"hash/fnv"
 	"math/rand"
 	"os"
+	"os/exec"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -37,6 +38,9 @@ import (
 
 	"github.com/jackblack369/dingofs-csi/pkg/config"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/klog/v2"
 )
 
@@ -190,48 +194,92 @@ func GetPodLock(podHashVal string) *sync.Mutex {
 	return &PodLocks[index]
 }
 
-func applyConfigPatch(setting *config.DfsSetting) {
-	attr := setting.Attr
-	// overwrite by mountpod patch
-	patch := GlobalConfig.GenMountPodPatch(*setting)
-	if patch.Image != "" {
-		attr.Image = patch.Image
-	}
-	if patch.HostNetwork != nil {
-		attr.HostNetwork = *patch.HostNetwork
-	}
-	if patch.HostPID != nil {
-		attr.HostPID = *patch.HostPID
-	}
-	for k, v := range patch.Labels {
-		attr.Labels[k] = v
-	}
-	for k, v := range patch.Annotations {
-		attr.Annotations[k] = v
-	}
-	if patch.Resources != nil {
-		attr.Resources = *patch.Resources
-	}
-	attr.Lifecycle = patch.Lifecycle
-	attr.LivenessProbe = patch.LivenessProbe
-	attr.ReadinessProbe = patch.ReadinessProbe
-	attr.StartupProbe = patch.StartupProbe
-	attr.TerminationGracePeriodSeconds = patch.TerminationGracePeriodSeconds
-	attr.VolumeDevices = patch.VolumeDevices
-	attr.VolumeMounts = patch.VolumeMounts
-	attr.Volumes = patch.Volumes
-	attr.Env = patch.Env
-
-	// merge or overwrite setting options
-	if setting.Options == nil {
-		setting.Options = make([]string, 0)
-	}
-	for _, option := range patch.MountOptions {
-		for i, o := range setting.Options {
-			if strings.Split(o, "=")[0] == option {
-				setting.Options = append(setting.Options[:i], setting.Options[i+1:]...)
-			}
+func ParseYamlOrJson(source string, dst interface{}) error {
+	if err := yaml.Unmarshal([]byte(source), &dst); err != nil {
+		if err := json.Unmarshal([]byte(source), &dst); err != nil {
+			return status.Errorf(codes.InvalidArgument,
+				"Parse yaml or json error: %v", err)
 		}
-		setting.Options = append(setting.Options, option)
+	}
+	return nil
+}
+
+func QuoteForShell(cmd string) string {
+	if strings.Contains(cmd, "(") {
+		cmd = strings.ReplaceAll(cmd, "(", "\\(")
+	}
+	if strings.Contains(cmd, ")") {
+		cmd = strings.ReplaceAll(cmd, ")", "\\)")
+	}
+	return cmd
+}
+
+// ParseToBytes parses a string with a unit suffix (e.g. "1M", "2G") to bytes.
+// default unit is M
+func ParseToBytes(value string) (uint64, error) {
+	if len(value) == 0 {
+		return 0, nil
+	}
+	s := value
+	unit := byte('M')
+	if c := s[len(s)-1]; c < '0' || c > '9' {
+		unit = c
+		s = s[:len(s)-1]
+	}
+	val, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("cannot parse %s to bytes", value)
+	}
+	var shift int
+	switch unit {
+	case 'k', 'K':
+		shift = 10
+	case 'm', 'M':
+		shift = 20
+	case 'g', 'G':
+		shift = 30
+	case 't', 'T':
+		shift = 40
+	case 'p', 'P':
+		shift = 50
+	case 'e', 'E':
+		shift = 60
+	default:
+		return 0, fmt.Errorf("cannot parse %s to bytes, invalid unit", value)
+	}
+	val *= float64(uint64(1) << shift)
+
+	return uint64(val), nil
+}
+
+func EscapeBashStr(s string) string {
+	if !containsOne(s, []rune{'$', '`', '&', ';', '>', '|', '(', ')'}) {
+		return s
+	}
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `'`, `\'`)
+	return fmt.Sprintf(`$'%s'`, s)
+}
+
+func containsOne(target string, chars []rune) bool {
+	charMap := make(map[rune]bool, len(chars))
+	for _, c := range chars {
+		charMap[c] = true
+	}
+	for _, s := range target {
+		if charMap[s] {
+			return true
+		}
+	}
+	return false
+}
+
+func UmountPath(ctx context.Context, sourcePath string) {
+	out, err := exec.CommandContext(ctx, "umount", "-l", sourcePath).CombinedOutput()
+	if err != nil &&
+		!strings.Contains(string(out), "not mounted") &&
+		!strings.Contains(string(out), "mountpoint not found") &&
+		!strings.Contains(string(out), "no mount point specified") {
+		klog.Error(err, "Could not lazy unmount", "path", sourcePath, "out", string(out))
 	}
 }

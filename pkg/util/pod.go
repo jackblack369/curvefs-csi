@@ -27,6 +27,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -468,4 +469,85 @@ func CreateOrUpdateSecret(ctx context.Context, client *k8sclient.K8sClient, secr
 		return err
 	}
 	return nil
+}
+
+func ParsePodResources(cpuLimit, memoryLimit, cpuRequest, memoryRequest string) (corev1.ResourceRequirements, error) {
+	podLimit := map[corev1.ResourceName]resource.Quantity{}
+	podRequest := map[corev1.ResourceName]resource.Quantity{}
+	// set default value
+	podLimit[corev1.ResourceCPU] = resource.MustParse(config.DefaultMountPodCpuLimit)
+	podLimit[corev1.ResourceMemory] = resource.MustParse(config.DefaultMountPodMemLimit)
+	podRequest[corev1.ResourceCPU] = resource.MustParse(config.DefaultMountPodCpuRequest)
+	podRequest[corev1.ResourceMemory] = resource.MustParse(config.DefaultMountPodMemRequest)
+	var err error
+	if cpuLimit != "" {
+		if podLimit[corev1.ResourceCPU], err = resource.ParseQuantity(cpuLimit); err != nil {
+			return corev1.ResourceRequirements{}, err
+		}
+		q := podLimit[corev1.ResourceCPU]
+		if res := q.Cmp(*resource.NewQuantity(0, resource.DecimalSI)); res <= 0 {
+			delete(podLimit, corev1.ResourceCPU)
+		}
+	}
+	if memoryLimit != "" {
+		if podLimit[corev1.ResourceMemory], err = resource.ParseQuantity(memoryLimit); err != nil {
+			return corev1.ResourceRequirements{}, err
+		}
+		q := podLimit[corev1.ResourceMemory]
+		if res := q.Cmp(*resource.NewQuantity(0, resource.DecimalSI)); res <= 0 {
+			delete(podLimit, corev1.ResourceMemory)
+		}
+	}
+	if cpuRequest != "" {
+		if podRequest[corev1.ResourceCPU], err = resource.ParseQuantity(cpuRequest); err != nil {
+			return corev1.ResourceRequirements{}, err
+		}
+		q := podRequest[corev1.ResourceCPU]
+		if res := q.Cmp(*resource.NewQuantity(0, resource.DecimalSI)); res <= 0 {
+			delete(podRequest, corev1.ResourceCPU)
+		}
+	}
+	if memoryRequest != "" {
+		if podRequest[corev1.ResourceMemory], err = resource.ParseQuantity(memoryRequest); err != nil {
+			return corev1.ResourceRequirements{}, err
+		}
+		q := podRequest[corev1.ResourceMemory]
+		if res := q.Cmp(*resource.NewQuantity(0, resource.DecimalSI)); res <= 0 {
+			delete(podRequest, corev1.ResourceMemory)
+		}
+	}
+	return corev1.ResourceRequirements{
+		Limits:   podLimit,
+		Requests: podRequest,
+	}, nil
+}
+
+// GenMountPodPatch generate mount pod patch from jfsSettting
+// 1. match pv selector
+// 2. parse template value
+// 3. return the merged mount pod patch
+func GenMountPodPatch(mountPodPatch []config.MountPodPatch, setting *config.DfsSetting) config.MountPodPatch {
+	patch := &config.MountPodPatch{
+		Labels:      map[string]string{},
+		Annotations: map[string]string{},
+	}
+
+	// merge each patch
+	for _, mp := range mountPodPatch {
+		if mp.IsMatch(setting.PVC) {
+			patch.Merge(mp.DeepCopy())
+		}
+	}
+
+	patch.Image = patch.MountImage
+
+	data, _ := json.Marshal(patch)
+	strData := string(data)
+	strData = strings.ReplaceAll(strData, "${MOUNT_POINT}", setting.MountPath)
+	strData = strings.ReplaceAll(strData, "${VOLUME_ID}", setting.VolumeId)
+	strData = strings.ReplaceAll(strData, "${VOLUME_NAME}", setting.Name)
+	strData = strings.ReplaceAll(strData, "${SUB_PATH}", setting.SubPath)
+	_ = json.Unmarshal([]byte(strData), patch)
+	klog.V(1).Info("volume using patch", "volumeId", setting.VolumeId, "patch", patch)
+	return *patch
 }

@@ -37,7 +37,13 @@ type PodMount struct {
 	K8sClient *k8sclient.K8sClient
 }
 
-func (p *PodMount) Mount(ctx context.Context, appInfo *config.AppInfo, dfsSetting *config.DfsSetting) error {
+var _ MntInterface = &PodMount{}
+
+func NewPodMount(client *k8sclient.K8sClient, mounter k8sMount.SafeFormatAndMount) MntInterface {
+	return &PodMount{mounter, client}
+}
+
+func (p *PodMount) DMount(ctx context.Context, appInfo *config.AppInfo, dfsSetting *config.DfsSetting) error {
 	hashVal := util.GenHashOfSetting(*dfsSetting)
 	dfsSetting.HashVal = hashVal
 	klog.Infof("config.dfsSetting:%v", *dfsSetting)
@@ -126,7 +132,7 @@ func (p *PodMount) createOrAddRef(ctx context.Context, podName string, dfsSettin
 			if k8serrors.IsNotFound(err) {
 				// pod not exist, create
 				klog.Info("Need to create pod", "podName", podName)
-				newPod, err := NewMountPod(podName)
+				newPod, err := NewMountPod(podName, dfsSetting)
 				if err != nil {
 					klog.Error(err, "Make new mount pod error", "podName", podName)
 					return err

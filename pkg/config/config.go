@@ -18,6 +18,8 @@ var (
 	SecretReconcilerInterval = 1 * time.Hour
 
 	CSIPod = corev1.Pod{}
+
+	Immutable = false // csi driver is running in an immutable environment
 )
 
 const (
@@ -58,4 +60,25 @@ const (
 	MountPodAnnotationKey  = "dingofs/mount-annotations"
 	MountPodServiceAccount = "dingofs/mount-service-account"
 	MountPodImageKey       = "dingofs/mount-image"
+	CleanCacheKey          = "dingofs/clean-cache"
+	DeleteDelay            = "dingofs/mount-delete-delay"
+	MountPodHostPath       = "dingofs/host-path"
+
+	DfsInsideContainer   = "DFS_INSIDE_CONTAINER"
+	DFSMountPriorityName = "system-node-critical"
+	Finalizer            = "dingofs.com/finalizer"
+
+	CleanCache = "dingofs-clean-cache"
+	ROConfPath = "/etc/dingofs"
+
+	DfsDirName          = "dfs-dir"
+	UpdateDBDirName     = "updatedb"
+	UpdateDBCfgFile     = "/etc/updatedb.conf"
+	DfsFuseFdPathName   = "dfs-fuse-fd"
+	DfsFuseFsPathInPod  = "/tmp"
+	DfsFuseFsPathInHost = "/var/run/dingofs-csi"
+	DfsCommEnv          = "DFS_SUPER_COMM"
+
+	DefaultClientConfPath = "/root/.dingofs"
+	CliPath               = "/usr/bin/dingofs"
 )
