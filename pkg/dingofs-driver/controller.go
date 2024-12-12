@@ -1,4 +1,4 @@
-package dingofs
+package dingofsdriver
 
 import (
 	"context"
@@ -37,16 +37,16 @@ var (
 )
 
 type controllerService struct {
-	dingofs  ProviderInterface
+	provider Provider
 	vols     map[string]int64
 	volLocks *resource.VolumeLocks
 }
 
 func newControllerService(k8sClient *k8sclient.K8sClient) (controllerService, error) {
-	jfs := NewDfsProvider(nil, k8sClient)
+	dfsProvider := NewDfsProvider(nil, k8sClient)
 
 	return controllerService{
-		dingofs:  jfs,
+		provider: dfsProvider,
 		vols:     make(map[string]int64),
 		volLocks: resource.NewVolumeLocks(),
 	}, nil
@@ -153,7 +153,7 @@ func (d *controllerService) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 	defer d.volLocks.Release(volumeID)
 
 	log.Info("Deleting volume", "volumeId", volumeID)
-	err = d.dingofs.DfsDeleteVol(ctx, volumeID, volumeID, secrets, nil, nil)
+	err = d.provider.DfsDeleteVol(ctx, volumeID, volumeID, secrets, nil, nil)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not delVol in dingofs: %v", err)
 	}
@@ -304,11 +304,11 @@ func (d *controllerService) ControllerExpandVolume(ctx context.Context, req *csi
 	}
 
 	// get quota path
-	quotaPath, err := d.dingofs.GetSubPath(ctx, volumeID)
+	quotaPath, err := d.provider.GetSubPath(ctx, volumeID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get quotaPath error: %v", err)
 	}
-	settings, err := d.dingofs.Settings(ctx, volumeID, req.GetSecrets(), nil, options)
+	settings, err := d.provider.Settings(ctx, volumeID, req.GetSecrets(), nil, options)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get settings: %v", err)
 	}
@@ -324,7 +324,7 @@ func (d *controllerService) ControllerExpandVolume(ctx context.Context, req *csi
 		}
 	}
 
-	err = d.dingofs.SetQuota(ctx, req.GetSecrets(), settings, path.Join(subdir, quotaPath), capacity)
+	err = d.provider.SetQuota(ctx, req.GetSecrets(), settings, path.Join(subdir, quotaPath), capacity)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "set quota: %v", err)
 	}

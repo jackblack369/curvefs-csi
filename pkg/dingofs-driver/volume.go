@@ -1,4 +1,4 @@
-package dingofs
+package dingofsdriver
 
 import (
 	"context"

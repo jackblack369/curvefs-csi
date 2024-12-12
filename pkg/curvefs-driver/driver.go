@@ -17,13 +17,8 @@ limitations under the License.
 package curvefsdriver
 
 import (
-	"context"
-	"os"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/csicommon"
-	k8s "github.com/jackblack369/dingofs-csi/pkg/k8sclient"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -77,7 +72,6 @@ func NewControllerServer(d *CurvefsDriver) *controllerServer {
 
 // NewNodeServer create a new node server
 func NewNodeServer(d *CurvefsDriver) *nodeServer {
-	parseNodeConfig()
 	return &nodeServer{
 		DefaultNodeServer: csicommon.NewDefaultNodeServer(d.CSIDriver),
 		mounter:           mount.New(""),
@@ -93,33 +87,4 @@ func (d *CurvefsDriver) Run() {
 		NewControllerServer(d),
 		NewNodeServer(d),
 	)
-}
-
-func parseNodeConfig() {
-	if os.Getenv("DRIVER_NAME") != "" {
-		config.DriverName = os.Getenv("DRIVER_NAME")
-	}
-
-	config.NodeName = os.Getenv("NODE_NAME")
-	config.Namespace = os.Getenv("JUICEFS_MOUNT_NAMESPACE")
-	config.PodName = os.Getenv("POD_NAME")
-
-	k8sclient, err := k8s.NewClient()
-	if err != nil {
-		klog.Error(err, "Can't get k8s client")
-		os.Exit(1)
-	}
-	pod, err := k8sclient.GetPod(context.TODO(), config.PodName, config.Namespace)
-	if err != nil {
-		klog.Error(err, "Can't get pod", "pod", config.PodName)
-		os.Exit(1)
-	}
-
-	config.CSIPod = *pod
-
-	// err = fuse.InitGlobalFds(context.TODO(), "/tmp")
-	// if err != nil {
-	// 	log.Error(err, "Init global fds error")
-	// 	os.Exit(1)
-	// }
 }

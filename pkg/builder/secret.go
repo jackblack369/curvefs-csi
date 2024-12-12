@@ -23,7 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/juicedata/juicefs-csi-driver/pkg/common"
+	"github.com/jackblack369/dingofs-csi/pkg/config"
 )
 
 const (
@@ -104,7 +104,7 @@ func (r *BaseBuilder) NewSecret() corev1.Secret {
 			Namespace: r.dfsSetting.Attr.Namespace,
 			Name:      r.dfsSetting.SecretName,
 			Labels: map[string]string{
-				common.JuicefsSecretLabelKey: "true",
+				config.DingofsSecretLabelKey: "true",
 			},
 		},
 		StringData: data,

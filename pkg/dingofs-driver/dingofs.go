@@ -1,4 +1,4 @@
-package dingofs
+package dingofsdriver
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	config "github.com/jackblack369/dingofs-csi/pkg/config"
+	"github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/k8sclient"
 	podmount "github.com/jackblack369/dingofs-csi/pkg/mount"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
@@ -31,8 +31,8 @@ import (
 	"k8s.io/utils/mount"
 )
 
-// ProviderInterface of dingofs provider
-type ProviderInterface interface {
+// Provider of dingofs
+type Provider interface {
 	mount.Interface
 	DfsMount(ctx context.Context, volumeID string, target string, secrets, volCtx map[string]string, options []string) (DfsInterface, error)
 	// DfsCreateVol(ctx context.Context, volumeID string, subPath string, secrets, volCtx map[string]string) error
@@ -59,7 +59,7 @@ type dingofs struct {
 }
 
 // NewDfsProvider creates a provider for DingoFS file system
-func NewDfsProvider(mounter *mount.SafeFormatAndMount, k8sClient *k8sclient.K8sClient) ProviderInterface {
+func NewDfsProvider(mounter *mount.SafeFormatAndMount, k8sClient *k8sclient.K8sClient) Provider {
 	if mounter == nil {
 		mounter = &mount.SafeFormatAndMount{
 			Interface: mount.New(""),
@@ -533,7 +533,7 @@ func (d *dingofs) DfsUnmount(ctx context.Context, volumeId, mountPath string) er
 		if hashVal == "" {
 			return fmt.Errorf("pod %s/%s has no hash label", mountPod.Namespace, mountPod.Name)
 		}
-		lock := config.GetPodLock(hashVal)
+		lock := util.GetPodLock(hashVal)
 		lock.Lock()
 		defer lock.Unlock()
 	}
