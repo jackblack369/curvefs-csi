@@ -34,13 +34,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/jackblack369/dingofs-csi/pkg/config"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/klog/v2"
 )
 
@@ -194,16 +192,6 @@ func GetPodLock(podHashVal string) *sync.Mutex {
 	return &PodLocks[index]
 }
 
-func ParseYamlOrJson(source string, dst interface{}) error {
-	if err := yaml.Unmarshal([]byte(source), &dst); err != nil {
-		if err := json.Unmarshal([]byte(source), &dst); err != nil {
-			return status.Errorf(codes.InvalidArgument,
-				"Parse yaml or json error: %v", err)
-		}
-	}
-	return nil
-}
-
 func QuoteForShell(cmd string) string {
 	if strings.Contains(cmd, "(") {
 		cmd = strings.ReplaceAll(cmd, "(", "\\(")
@@ -281,5 +269,45 @@ func UmountPath(ctx context.Context, sourcePath string) {
 		!strings.Contains(string(out), "mountpoint not found") &&
 		!strings.Contains(string(out), "no mount point specified") {
 		klog.Error(err, "Could not lazy unmount", "path", sourcePath, "out", string(out))
+	}
+}
+
+func CheckDynamicPV(name string) (bool, error) {
+	return regexp.Match("pvc-\\w{8}(-\\w{4}){3}-\\w{12}", []byte(name))
+}
+
+// ContainsPrefix String checks if a string slice contains a string with a given prefix
+func ContainsPrefix(slice []string, s string) bool {
+	for _, item := range slice {
+		if strings.HasPrefix(item, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func StripReadonlyOption(options []string) []string {
+	news := make([]string, 0)
+	for _, option := range options {
+		if option != "ro" && option != "read-only" {
+			news = append(news, option)
+		}
+	}
+	return news
+}
+
+func GetDiskUsage(path string) (uint64, uint64, uint64, uint64) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err == nil {
+		// in bytes
+		blockSize := uint64(stat.Bsize)
+		totalSize := blockSize * stat.Blocks
+		freeSize := blockSize * stat.Bfree
+		totalFiles := stat.Files
+		freeFiles := stat.Ffree
+		return totalSize, freeSize, totalFiles, freeFiles
+	} else {
+		klog.Error(err, "GetDiskUsage: syscall.Statfs failed")
+		return 1, 1, 1, 1
 	}
 }

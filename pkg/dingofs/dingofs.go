@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -15,11 +17,15 @@ import (
 	"github.com/jackblack369/dingofs-csi/pkg/k8sclient"
 	podmount "github.com/jackblack369/dingofs-csi/pkg/mount"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
+	"github.com/jackblack369/dingofs-csi/pkg/util/resource"
 
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/klog/v2"
 	k8sexec "k8s.io/utils/exec"
 	"k8s.io/utils/mount"
@@ -30,14 +36,14 @@ type ProviderInterface interface {
 	mount.Interface
 	DfsMount(ctx context.Context, volumeID string, target string, secrets, volCtx map[string]string, options []string) (DfsInterface, error)
 	// DfsCreateVol(ctx context.Context, volumeID string, subPath string, secrets, volCtx map[string]string) error
-	// DfsDeleteVol(ctx context.Context, volumeID string, target string, secrets, volCtx map[string]string, options []string) error
-	// DfsUnmount(ctx context.Context, volumeID, mountPath string) error
-	// DfsCleanupMountPoint(ctx context.Context, mountPath string) error
+	DfsDeleteVol(ctx context.Context, volumeID string, target string, secrets, volCtx map[string]string, options []string) error
+	DfsUnmount(ctx context.Context, volumeID, mountPath string) error
+	DfsCleanupMountPoint(ctx context.Context, mountPath string) error
 	GetDfsVolUUID(ctx context.Context, dfsSetting *config.DfsSetting) (string, error)
-	// SetQuota(ctx context.Context, secrets map[string]string, dfsSetting *config.DfsSetting, quotaPath string, capacity int64) error
-	// Settings(ctx context.Context, volumeID string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error)
-	// GetSubPath(ctx context.Context, volumeID string) (string, error)
-	// CreateTarget(ctx context.Context, target string) error
+	SetQuota(ctx context.Context, secrets map[string]string, dfsSetting *config.DfsSetting, quotaPath string, capacity int64) error
+	Settings(ctx context.Context, volumeID string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error)
+	GetSubPath(ctx context.Context, volumeID string) (string, error)
+	CreateTarget(ctx context.Context, target string) error
 	// AuthFs(ctx context.Context, secrets map[string]string, dfsSetting *config.DfsSetting, force bool) (string, error)
 	// Status(ctx context.Context, metaUrl string) error
 }
@@ -175,7 +181,7 @@ func (d *dingofs) genDfsSettings(ctx context.Context, volumeID string, target st
 
 // Settings get all dfs settings and generate format/auth command
 func (d *dingofs) Settings(ctx context.Context, volumeID string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error) {
-	pv, pvc, err := util.GetPVWithVolumeHandleOrAppInfo(ctx, d.K8sClient, volumeID, volCtx)
+	pv, pvc, err := resource.GetPVWithVolumeHandleOrAppInfo(ctx, d.K8sClient, volumeID, volCtx)
 	if err != nil {
 		klog.Error(err, "Get PV with volumeID error", "volumeId", volumeID)
 	}
@@ -242,7 +248,7 @@ func ParseSetting(secrets, volCtx map[string]string, options []string, pv *corev
 	if err != nil {
 		return nil, err
 	}
-	if err := util.ParseYamlOrJson(string(secretStr), &dfsSetting); err != nil {
+	if err := config.ParseYamlOrJson(string(secretStr), &dfsSetting); err != nil {
 		return nil, err
 	}
 
@@ -270,7 +276,7 @@ func ParseSetting(secrets, volCtx map[string]string, options []string, pv *corev
 		configStr := secrets["configs"]
 		configs := make(map[string]string)
 		klog.V(1).Info("Get configs in secret", "config", configStr)
-		if err := util.ParseYamlOrJson(configStr, &configs); err != nil {
+		if err := config.ParseYamlOrJson(configStr, &configs); err != nil {
 			return nil, err
 		}
 		dfsSetting.Configs = configs
@@ -280,7 +286,7 @@ func ParseSetting(secrets, volCtx map[string]string, options []string, pv *corev
 		envStr := secrets["envs"]
 		env := make(map[string]string)
 		klog.V(1).Info("Get envs in secret", "env", envStr)
-		if err := util.ParseYamlOrJson(envStr, &env); err != nil {
+		if err := config.ParseYamlOrJson(envStr, &env); err != nil {
 			return nil, err
 		}
 		dfsSetting.Envs = env
@@ -315,7 +321,7 @@ func ParseSetting(secrets, volCtx map[string]string, options []string, pv *corev
 		}
 	}
 
-	if err := podmount.GenPodAttrWithCfg(&dfsSetting, volCtx); err != nil {
+	if err := config.GenPodAttrWithCfg(&dfsSetting, volCtx); err != nil {
 		return nil, fmt.Errorf("GenPodAttrWithCfg error: %v", err)
 	}
 	if err := podmount.GenAndValidOptions(&dfsSetting, options); err != nil {
@@ -361,4 +367,192 @@ func (d *dingofs) GetDfsVolUUID(ctx context.Context, dfsSetting *config.DfsSetti
 	}
 
 	return idStrs[3], nil
+}
+
+func (d *dingofs) DfsDeleteVol(ctx context.Context, volumeID string, subPath string, secrets, volCtx map[string]string, options []string) error {
+	// get pv by volumeId
+	pv, err := d.K8sClient.GetPersistentVolume(ctx, volumeID)
+	if err != nil {
+		return err
+	}
+	volCtx = pv.Spec.CSI.VolumeAttributes
+	options = pv.Spec.MountOptions
+
+	jfsSetting, err := d.genDfsSettings(ctx, volumeID, "", secrets, volCtx, options)
+	if err != nil {
+		return err
+	}
+	jfsSetting.SubPath = subPath
+	jfsSetting.MountPath = filepath.Join(config.TmpPodMountBase, jfsSetting.VolumeId)
+
+	mnt := d.podMount
+
+	if err := mnt.DeleteVolume(ctx, jfsSetting); err != nil {
+		return err
+	}
+	return d.DfsCleanupMountPoint(ctx, jfsSetting.MountPath)
+}
+
+func (d *dingofs) GetSubPath(ctx context.Context, volumeID string) (string, error) {
+	if config.Provisioner {
+		pv, err := d.K8sClient.GetPersistentVolume(ctx, volumeID)
+		if err != nil {
+			return "", err
+		}
+		return pv.Spec.CSI.VolumeAttributes["subPath"], nil
+	}
+	return volumeID, nil
+}
+
+func (d *dingofs) CreateTarget(ctx context.Context, target string) error {
+	var corruptedMnt bool
+
+	for {
+		err := util.DoWithTimeout(ctx, defaultCheckTimeout, func() (err error) {
+			_, err = mount.PathExists(target)
+			return
+		})
+		if err == nil {
+			return os.MkdirAll(target, os.FileMode(0755))
+		} else if corruptedMnt = mount.IsCorruptedMnt(err); corruptedMnt {
+			// if target is a corrupted mount, umount it
+			util.UmountPath(ctx, target)
+			continue
+		} else {
+			return err
+		}
+	}
+}
+
+func (d *dingofs) SetQuota(ctx context.Context, secrets map[string]string, dfsSetting *config.DfsSetting, quotaPath string, capacity int64) error {
+	cap := capacity / 1024 / 1024 / 1024
+	if cap <= 0 {
+		return fmt.Errorf("capacity %d is too small, at least 1GiB for quota", capacity)
+	}
+
+	var args, cmdArgs []string
+	args = []string{"quota", "set", secrets["metaurl"], "--path", quotaPath, "--capacity", strconv.FormatInt(cap, 10)}
+	cmdArgs = []string{config.CliPath, "quota", "set", "${metaurl}", "--path", quotaPath, "--capacity", strconv.FormatInt(cap, 10)}
+
+	klog.Info("quota command:", strings.Join(cmdArgs, " "))
+	cmdCtx, cmdCancel := context.WithTimeout(ctx, 5*defaultCheckTimeout)
+	defer cmdCancel()
+	envs := syscall.Environ()
+	for key, val := range dfsSetting.Envs {
+		envs = append(envs, fmt.Sprintf("%s=%s", util.EscapeBashStr(key), util.EscapeBashStr(val)))
+	}
+	var err error
+
+	done := make(chan error, 1)
+	go func() {
+		// ce cli will block until quota is set
+		quotaCmd := d.Exec.CommandContext(context.Background(), config.CliPath, args...)
+		quotaCmd.SetEnv(envs)
+		res, err := quotaCmd.CombinedOutput()
+		if err == nil {
+			klog.Info("quota set success :", string(res))
+		}
+		done <- wrapSetQuotaErr(string(res), err)
+		close(done)
+	}()
+	select {
+	case <-cmdCtx.Done():
+		klog.Info("quota set timeout, runs in background")
+		return nil
+	case err = <-done:
+		return err
+	}
+}
+
+func wrapSetQuotaErr(res string, err error) error {
+	if err != nil {
+		re := string(res)
+		if strings.Contains(re, "invalid command: quota") || strings.Contains(re, "No help topic for 'quota'") {
+			klog.Info("juicefs inside do not support quota, skip it.")
+			return nil
+		}
+		return errors.Wrap(err, re)
+	}
+	return err
+}
+
+func (d *dingofs) DfsCleanupMountPoint(ctx context.Context, mountPath string) error {
+	klog.Info("clean up mount point ,mountPath:", mountPath)
+	return util.DoWithTimeout(ctx, 2*defaultCheckTimeout, func() (err error) {
+		return mount.CleanupMountPoint(mountPath, d.SafeFormatAndMount.Interface, false)
+	})
+}
+
+func (d *dingofs) DfsUnmount(ctx context.Context, volumeId, mountPath string) error {
+	uniqueId, err := d.getUniqueId(ctx, volumeId)
+	if err != nil {
+		klog.Error(err, "Get volume name by volume id error", "volumeId", volumeId)
+		return err
+	}
+
+	mnt := d.podMount
+	mountPods := []corev1.Pod{}
+	var mountPod *corev1.Pod
+	var podName string
+	var hashVal string
+	// get pod by exact name
+	oldPodName := resource.GenPodNameByUniqueId(uniqueId, false)
+	pod, err := d.K8sClient.GetPod(ctx, oldPodName, config.Namespace)
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			klog.Error(err, "Get mount pod error", "pod", oldPodName)
+			return err
+		}
+	}
+	if pod != nil {
+		mountPods = append(mountPods, *pod)
+	}
+	// get pod by label
+	labelSelector := &metav1.LabelSelector{MatchLabels: map[string]string{
+		config.PodTypeKey:          config.PodTypeValue,
+		config.PodUniqueIdLabelKey: uniqueId,
+	}}
+	fieldSelector := &fields.Set{"spec.nodeName": config.NodeName}
+	pods, err := d.K8sClient.ListPod(ctx, config.Namespace, labelSelector, fieldSelector)
+	if err != nil {
+		klog.Error(err, "List pods of uniqueId error", "uniqueId", uniqueId)
+		return err
+	}
+	mountPods = append(mountPods, pods...)
+	// find pod by target
+	key := util.GetReferenceKey(mountPath)
+	for _, po := range mountPods {
+		if _, ok := po.Annotations[key]; ok {
+			mountPod = &po
+			break
+		}
+	}
+	if mountPod != nil {
+		podName = mountPod.Name
+		hashVal = mountPod.Labels[config.PodJuiceHashLabelKey]
+		if hashVal == "" {
+			return fmt.Errorf("pod %s/%s has no hash label", mountPod.Namespace, mountPod.Name)
+		}
+		lock := config.GetPodLock(hashVal)
+		lock.Lock()
+		defer lock.Unlock()
+	}
+
+	// umount target path
+	if err = mnt.UmountTarget(ctx, mountPath, podName); err != nil {
+		return err
+	}
+	if podName == "" {
+		return nil
+	}
+	// get refs of mount pod
+	refs, err := mnt.GetMountRef(ctx, mountPath, podName)
+	if err != nil {
+		return err
+	}
+	if refs == 0 {
+		// if refs is none, umount
+		return d.podMount.DUmount(ctx, mountPath, podName)
+	}
+	return nil
 }

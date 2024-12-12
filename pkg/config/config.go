@@ -19,7 +19,9 @@ var (
 
 	CSIPod = corev1.Pod{}
 
-	Immutable = false // csi driver is running in an immutable environment
+	Immutable   = false // csi driver is running in an immutable environment
+	Provisioner = false // provisioner in controller
+
 )
 
 const (
@@ -81,4 +83,11 @@ const (
 
 	DefaultClientConfPath = "/root/.dingofs"
 	CliPath               = "/usr/bin/dingofs"
+
+	TmpPodMountBase = "/tmp"
+
+	JobTypeValue = "dingofs-job"
+
+	// secret labels
+	DingofsSecretLabelKey = "dingofs/secret"
 )

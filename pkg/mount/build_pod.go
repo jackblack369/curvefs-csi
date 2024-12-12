@@ -17,7 +17,6 @@
 package mount
 
 import (
-	"encoding/json"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -26,7 +25,6 @@ import (
 	config "github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -94,7 +92,7 @@ func NewMountPod(podName string, dfsSetting *config.DfsSetting) (*corev1.Pod, er
 // genCommonPod generates a pod with common settings
 func genCommonPod(container corev1.Container, dfsSetting *config.DfsSetting) *corev1.Pod {
 	// gen again to update the mount pod spec
-	if err := GenPodAttrWithCfg(dfsSetting, nil); err != nil {
+	if err := config.GenPodAttrWithCfg(dfsSetting, nil); err != nil {
 		klog.Error(err, "genCommonPod gen pod attr failed, mount pod may not be the expected config")
 	}
 	pod := genPodTemplate(container, dfsSetting)
@@ -200,88 +198,6 @@ func genCommonContainer(dfsSetting *config.DfsSetting) corev1.Container {
 				Name:  config.DfsInsideContainer,
 				Value: "1",
 			},
-		},
-	}
-}
-
-func GenPodAttrWithCfg(setting *config.DfsSetting, volCtx map[string]string) error {
-	var err error
-	var attr *config.PodAttr
-	if setting.Attr != nil {
-		attr = setting.Attr
-	} else {
-		attr = &config.PodAttr{
-			Namespace:          config.Namespace,
-			MountPointPath:     config.MountPointPath,
-			HostNetwork:        config.CSIPod.Spec.HostNetwork,
-			HostAliases:        config.CSIPod.Spec.HostAliases,
-			HostPID:            config.CSIPod.Spec.HostPID,
-			HostIPC:            config.CSIPod.Spec.HostIPC,
-			DNSConfig:          config.CSIPod.Spec.DNSConfig,
-			DNSPolicy:          config.CSIPod.Spec.DNSPolicy,
-			ImagePullSecrets:   config.CSIPod.Spec.ImagePullSecrets,
-			Tolerations:        config.CSIPod.Spec.Tolerations,
-			PreemptionPolicy:   config.CSIPod.Spec.PreemptionPolicy,
-			ServiceAccountName: config.CSIPod.Spec.ServiceAccountName,
-			Resources:          getDefaultResource(),
-			Labels:             make(map[string]string),
-			Annotations:        make(map[string]string),
-		}
-		attr.Image = config.DefaultMountImage
-		setting.Attr = attr
-	}
-
-	if volCtx != nil {
-		if v, ok := volCtx[config.MountPodImageKey]; ok && v != "" {
-			attr.Image = v
-		}
-		if v, ok := volCtx[config.MountPodServiceAccount]; ok && v != "" {
-			attr.ServiceAccountName = v
-		}
-		cpuLimit := volCtx[config.MountPodCpuLimitKey]
-		memoryLimit := volCtx[config.MountPodMemLimitKey]
-		cpuRequest := volCtx[config.MountPodCpuRequestKey]
-		memoryRequest := volCtx[config.MountPodMemRequestKey]
-		attr.Resources, err = util.ParsePodResources(cpuLimit, memoryLimit, cpuRequest, memoryRequest)
-		if err != nil {
-			klog.Error("Parse resource error: %v", err)
-			return err
-		}
-		if v, ok := volCtx[config.MountPodLabelKey]; ok && v != "" {
-			ctxLabel := make(map[string]string)
-			if err := util.ParseYamlOrJson(v, &ctxLabel); err != nil {
-				return err
-			}
-			for k, v := range ctxLabel {
-				attr.Labels[k] = v
-			}
-		}
-		if v, ok := volCtx[config.MountPodAnnotationKey]; ok && v != "" {
-			ctxAnno := make(map[string]string)
-			if err := util.ParseYamlOrJson(v, &ctxAnno); err != nil {
-				return err
-			}
-			for k, v := range ctxAnno {
-				attr.Annotations[k] = v
-			}
-		}
-	}
-	setting.Attr = attr
-	// apply config patch
-	ApplyConfigPatch(setting)
-
-	return nil
-}
-
-func getDefaultResource() corev1.ResourceRequirements {
-	return corev1.ResourceRequirements{
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse(config.DefaultMountPodCpuLimit),
-			corev1.ResourceMemory: resource.MustParse(config.DefaultMountPodMemLimit),
-		},
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse(config.DefaultMountPodCpuRequest),
-			corev1.ResourceMemory: resource.MustParse(config.DefaultMountPodMemRequest),
 		},
 	}
 }
@@ -583,82 +499,6 @@ func genInitCommand(dfsSetting *config.DfsSetting) string {
 		formatCmd = strings.Join(args, " ")
 	}
 	return formatCmd
-}
-
-func ApplyConfigPatch(setting *config.DfsSetting) {
-	attr := setting.Attr
-	// overwrite by mountpod patch
-	patch := GenMountPodPatch(setting)
-	if patch.Image != "" {
-		attr.Image = patch.Image
-	}
-	if patch.HostNetwork != nil {
-		attr.HostNetwork = *patch.HostNetwork
-	}
-	if patch.HostPID != nil {
-		attr.HostPID = *patch.HostPID
-	}
-	for k, v := range patch.Labels {
-		attr.Labels[k] = v
-	}
-	for k, v := range patch.Annotations {
-		attr.Annotations[k] = v
-	}
-	if patch.Resources != nil {
-		attr.Resources = *patch.Resources
-	}
-	attr.Lifecycle = patch.Lifecycle
-	attr.LivenessProbe = patch.LivenessProbe
-	attr.ReadinessProbe = patch.ReadinessProbe
-	attr.StartupProbe = patch.StartupProbe
-	attr.TerminationGracePeriodSeconds = patch.TerminationGracePeriodSeconds
-	attr.VolumeDevices = patch.VolumeDevices
-	attr.VolumeMounts = patch.VolumeMounts
-	attr.Volumes = patch.Volumes
-	attr.Env = patch.Env
-
-	// merge or overwrite setting options
-	if setting.Options == nil {
-		setting.Options = make([]string, 0)
-	}
-	for _, option := range patch.MountOptions {
-		for i, o := range setting.Options {
-			if strings.Split(o, "=")[0] == option {
-				setting.Options = append(setting.Options[:i], setting.Options[i+1:]...)
-			}
-		}
-		setting.Options = append(setting.Options, option)
-	}
-}
-
-// GenMountPodPatch generate mount pod patch from jfsSettting
-// 1. match pv selector
-// 2. parse template value
-// 3. return the merged mount pod patch
-func GenMountPodPatch(setting *config.DfsSetting) config.MountPodPatch {
-	patch := &config.MountPodPatch{
-		Labels:      map[string]string{},
-		Annotations: map[string]string{},
-	}
-
-	// merge each patch
-	// for _, mp := range mountPodPatch {
-	// 	if mp.IsMatch(setting.PVC) {
-	// 		patch.Merge(mp.DeepCopy())
-	// 	}
-	// }
-
-	patch.Image = patch.MountImage
-
-	data, _ := json.Marshal(patch)
-	strData := string(data)
-	strData = strings.ReplaceAll(strData, "${MOUNT_POINT}", setting.MountPath)
-	strData = strings.ReplaceAll(strData, "${VOLUME_ID}", setting.VolumeId)
-	strData = strings.ReplaceAll(strData, "${VOLUME_NAME}", setting.Name)
-	strData = strings.ReplaceAll(strData, "${SUB_PATH}", setting.SubPath)
-	_ = json.Unmarshal([]byte(strData), patch)
-	klog.V(1).Info("volume using patch", "volumeId", setting.VolumeId, "patch", patch)
-	return *patch
 }
 
 func GenAndValidOptions(dfsSetting *config.DfsSetting, options []string) error {

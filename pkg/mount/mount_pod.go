@@ -20,17 +20,35 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
+	"github.com/jackblack369/dingofs-csi/pkg/builder"
 	config "github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/k8sclient"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
+	"github.com/jackblack369/dingofs-csi/pkg/util/resource"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	k8sMount "k8s.io/utils/mount"
 )
+
+type MntInterface interface {
+	k8sMount.Interface
+	DMount(ctx context.Context, appInfo *config.AppInfo, dfsSetting *config.DfsSetting) error
+	// DCreateVolume(ctx context.Context, jfsSetting *jfsConfig.JfsSetting) error
+	DeleteVolume(ctx context.Context, dfsSetting *config.DfsSetting) error
+	GetMountRef(ctx context.Context, target, podName string) (int, error) // podName is only used by podMount
+	UmountTarget(ctx context.Context, target, podName string) error       // podName is only used by podMount
+	DUmount(ctx context.Context, target, podName string) error            // podName is only used by podMount
+	// AddRefOfMount(ctx context.Context, target string, podName string) error
+	// CleanCache(ctx context.Context, image string, id string, volumeId string, cacheDirs []string) error
+}
 
 type PodMount struct {
 	k8sMount.SafeFormatAndMount
@@ -55,14 +73,14 @@ func (p *PodMount) DMount(ctx context.Context, appInfo *config.AppInfo, dfsSetti
 		lock.Lock()
 		defer lock.Unlock()
 
-		mountPodName, err = util.GenMountPodName(ctx, p.K8sClient, dfsSetting)
+		mountPodName, err = resource.GenMountPodName(ctx, p.K8sClient, dfsSetting)
 		if err != nil {
 			return err
 		}
 
 		// set mount pod name in app pod
 		if appInfo != nil && appInfo.Name != "" && appInfo.Namespace != "" {
-			err = util.SetMountLabel(ctx, p.K8sClient, dfsSetting.UniqueId, mountPodName, appInfo.Name, appInfo.Namespace)
+			err = resource.SetMountLabel(ctx, p.K8sClient, dfsSetting.UniqueId, mountPodName, appInfo.Name, appInfo.Namespace)
 			if err != nil {
 				return err
 			}
@@ -208,7 +226,7 @@ func (p *PodMount) AddRefOfMount(ctx context.Context, target string, podName str
 		annotation[key] = target
 		// delete deleteDelayAt when there ars refs
 		delete(annotation, config.DeleteDelayAtKey)
-		return util.ReplacePodAnnotation(ctx, p.K8sClient, exist, annotation)
+		return resource.ReplacePodAnnotation(ctx, p.K8sClient, exist, annotation)
 	})
 	if err != nil {
 		klog.Error("Add target ref in mount pod[%s]error, %v ", podName, err)
@@ -218,15 +236,338 @@ func (p *PodMount) AddRefOfMount(ctx context.Context, target string, podName str
 }
 
 func (p *PodMount) waitUtilMountReady(ctx context.Context, dfsSetting *config.DfsSetting, podName string) error {
-	err := util.WaitUtilMountReady(ctx, podName, dfsSetting.MountPath, config.DefaultCheckTimeout)
+	err := resource.WaitUtilMountReady(ctx, podName, dfsSetting.MountPath, config.DefaultCheckTimeout)
 	if err == nil {
 		return nil
 	}
 	// mountpoint not ready, get mount pod log for detail
-	log, err := util.GetErrContainerLog(ctx, p.K8sClient, podName)
+	log, err := resource.GetErrContainerLog(ctx, p.K8sClient, podName)
 	if err != nil {
 		klog.Error(err, "Get pod log error", "podName", podName)
 		return fmt.Errorf("mount %v at %v failed: mount isn't ready in 30 seconds", util.StripPasswd(dfsSetting.Source), dfsSetting.MountPath)
 	}
 	return fmt.Errorf("mount %v at %v failed, mountpod: %s, failed log: %v", util.StripPasswd(dfsSetting.Source), dfsSetting.MountPath, podName, log)
+}
+
+func (p *PodMount) DeleteVolume(ctx context.Context, dfsSetting *config.DfsSetting) error {
+	var exist *batchv1.Job
+	r := builder.NewJobBuilder(dfsSetting, 0)
+	job := r.NewJobForDeleteVolume()
+	exist, err := p.K8sClient.GetJob(ctx, job.Name, job.Namespace)
+	if err != nil && k8serrors.IsNotFound(err) {
+		klog.Info("create job", "jobName", job.Name)
+		exist, err = p.K8sClient.CreateJob(ctx, job)
+		if err != nil {
+			klog.Error(err, "create job err", "jobName", job.Name)
+			return err
+		}
+	}
+	if err != nil {
+		klog.Error(err, "get job err", "jobName", job.Name)
+		return err
+	}
+	secret := r.NewSecret()
+	builder.SetJobAsOwner(&secret, *exist)
+	if err := p.createOrUpdateSecret(ctx, &secret); err != nil {
+		return err
+	}
+	err = p.waitUtilJobCompleted(ctx, job.Name)
+	if err != nil {
+		// fall back if err
+		if e := p.K8sClient.DeleteJob(ctx, job.Name, job.Namespace); e != nil {
+			klog.Error(e, "delete job error", "jobName", job.Name)
+		}
+	}
+	return err
+}
+
+func (p *PodMount) JUmount(ctx context.Context, target, podName string) error {
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		po, err := p.K8sClient.GetPod(ctx, podName, config.Namespace)
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				return nil
+			}
+			klog.Error(err, "Get mount pod err", "podName", podName)
+			return err
+		}
+
+		if GetRef(po) != 0 {
+			klog.Info("pod still has juicefs- refs.", "podName", podName)
+			return nil
+		}
+
+		var shouldDelay bool
+		shouldDelay, err = resource.ShouldDelay(ctx, po, p.K8sClient)
+		if err != nil {
+			return err
+		}
+		if !shouldDelay {
+			// do not set delay delete, delete it now
+			klog.Info("pod has no juicefs- refs. delete it.", "podName", podName)
+			if err := p.K8sClient.DeletePod(ctx, po); err != nil {
+				klog.Info("Delete pod error", "podName", podName, "error", err)
+				return err
+			}
+
+			// close socket
+			// if util.SupportFusePass(po.Spec.Containers[0].Image) {
+			// 	fuse.GlobalFds.StopFd(ctx, po.Labels[common.PodJuiceHashLabelKey])
+			// }
+
+			// delete related secret
+			secretName := po.Name + "-secret"
+			klog.V(1).Info("delete related secret of pod", "podName", podName, "secretName", secretName)
+			if err := p.K8sClient.DeleteSecret(ctx, secretName, po.Namespace); !k8serrors.IsNotFound(err) && err != nil {
+				// do not return err if delete secret failed
+				klog.V(1).Info("Delete secret error", "secretName", secretName, "error", err)
+			}
+		}
+		return nil
+	})
+
+	return err
+}
+
+func GetRef(pod *corev1.Pod) int {
+	res := 0
+	for k, target := range pod.Annotations {
+		if k == util.GetReferenceKey(target) {
+			res++
+		}
+	}
+	return res
+}
+
+func (p *PodMount) createOrUpdateSecret(ctx context.Context, secret *corev1.Secret) error {
+	klog.Info("secret name:%s, namespace:%s", secret.Name, secret.Namespace)
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		oldSecret, err := p.K8sClient.GetSecret(ctx, secret.Name, config.Namespace)
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				// secret not exist, create
+				_, err := p.K8sClient.CreateSecret(ctx, secret)
+				return err
+			}
+			// unexpected err
+			return err
+		}
+		oldSecret.Data = nil
+		oldSecret.StringData = secret.StringData
+		// merge owner reference
+		if len(secret.OwnerReferences) != 0 {
+			newOwner := secret.OwnerReferences[0]
+			exist := false
+			for _, ref := range oldSecret.OwnerReferences {
+				if ref.UID == newOwner.UID {
+					exist = true
+					break
+				}
+			}
+			if !exist {
+				oldSecret.OwnerReferences = append(oldSecret.OwnerReferences, newOwner)
+			}
+		}
+		klog.Info("secret info:%v", oldSecret)
+		return p.K8sClient.UpdateSecret(ctx, oldSecret)
+	})
+	if err != nil {
+		klog.Error(err, "create or update secret error", "secretName", secret.Name)
+		return err
+	}
+	return nil
+}
+
+func (p *PodMount) waitUtilJobCompleted(ctx context.Context, jobName string) error {
+	// Wait until the job is completed
+	waitCtx, waitCancel := context.WithTimeout(ctx, 40*time.Second)
+	defer waitCancel()
+	for {
+		job, err := p.K8sClient.GetJob(waitCtx, jobName, config.Namespace)
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				klog.Info("waitUtilJobCompleted: Job is completed and been recycled", "jobName", jobName)
+				return nil
+			}
+			if waitCtx.Err() == context.DeadlineExceeded || waitCtx.Err() == context.Canceled {
+				klog.V(1).Info("job timeout", "jobName", jobName)
+				break
+			}
+			return fmt.Errorf("waitUtilJobCompleted: Get job %v failed: %v", jobName, err)
+		}
+		if resource.IsJobCompleted(job) {
+			klog.Info("waitUtilJobCompleted: Job is completed", "jobName", jobName)
+			if resource.IsJobShouldBeRecycled(job) {
+				// try to delete job
+				klog.Info("job completed but not be recycled automatically, delete it", "jobName", jobName)
+				if err := p.K8sClient.DeleteJob(ctx, jobName, config.Namespace); err != nil {
+					klog.Error(err, "delete job error", "jobName", jobName)
+				}
+			}
+			return nil
+		}
+		time.Sleep(time.Millisecond * 500)
+	}
+
+	pods, err := p.K8sClient.ListPod(ctx, config.Namespace, &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"job-name": jobName,
+		},
+	}, nil)
+	if err != nil || len(pods) == 0 {
+		return fmt.Errorf("waitUtilJobCompleted: get pod from job %s error %v", jobName, err)
+	}
+	cnlog, err := p.getNotCompleteCnLog(ctx, pods[0].Name)
+	if err != nil {
+		return fmt.Errorf("waitUtilJobCompleted: get pod %s log error %v", pods[0].Name, err)
+	}
+	return fmt.Errorf("waitUtilJobCompleted: job %s isn't completed: %v", jobName, cnlog)
+}
+
+func (p *PodMount) DUmount(ctx context.Context, target, podName string) error {
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		po, err := p.K8sClient.GetPod(ctx, podName, config.Namespace)
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				return nil
+			}
+			klog.Error(err, "Get mount pod err", "podName", podName)
+			return err
+		}
+
+		if GetRef(po) != 0 {
+			klog.Info("pod still has juicefs- refs.", "podName", podName)
+			return nil
+		}
+
+		var shouldDelay bool
+		shouldDelay, err = resource.ShouldDelay(ctx, po, p.K8sClient)
+		if err != nil {
+			return err
+		}
+		if !shouldDelay {
+			// do not set delay delete, delete it now
+			klog.Info("pod has no juicefs- refs. delete it.", "podName", podName)
+			if err := p.K8sClient.DeletePod(ctx, po); err != nil {
+				klog.Info("Delete pod error", "podName", podName, "error", err)
+				return err
+			}
+
+			// close socket
+			// if util.SupportFusePass(po.Spec.Containers[0].Image) {
+			// 	fuse.GlobalFds.StopFd(ctx, po.Labels[common.PodJuiceHashLabelKey])
+			// }
+
+			// delete related secret
+			secretName := po.Name + "-secret"
+			klog.V(1).Info("delete related secret of pod", "podName", podName, "secretName", secretName)
+			if err := p.K8sClient.DeleteSecret(ctx, secretName, po.Namespace); !k8serrors.IsNotFound(err) && err != nil {
+				// do not return err if delete secret failed
+				klog.V(1).Info("Delete secret error", "secretName", secretName, "error", err)
+			}
+		}
+		return nil
+	})
+
+	return err
+}
+
+func (p *PodMount) getNotCompleteCnLog(ctx context.Context, podName string) (log string, err error) {
+	pod, err := p.K8sClient.GetPod(ctx, podName, config.Namespace)
+	if err != nil {
+		return
+	}
+	for _, cn := range pod.Status.InitContainerStatuses {
+		if cn.State.Terminated == nil || cn.State.Terminated.Reason != "Completed" {
+			log, err = p.K8sClient.GetPodLog(ctx, pod.Name, pod.Namespace, cn.Name)
+			return
+		}
+	}
+	for _, cn := range pod.Status.ContainerStatuses {
+		if cn.State.Terminated == nil || cn.State.Terminated.Reason != "Completed" {
+			log, err = p.K8sClient.GetPodLog(ctx, pod.Name, pod.Namespace, cn.Name)
+			return
+		}
+	}
+	return
+}
+
+func (p *PodMount) UmountTarget(ctx context.Context, target, podName string) error {
+	// targetPath may be mount bind many times when mount point recovered.
+	// umount until it's not mounted.
+	klog.Info("lazy umount", "target", target)
+	for {
+		command := exec.Command("umount", "-l", target)
+		out, err := command.CombinedOutput()
+		if err == nil {
+			continue
+		}
+		klog.V(1).Info(string(out))
+		if !strings.Contains(string(out), "not mounted") &&
+			!strings.Contains(string(out), "mountpoint not found") &&
+			!strings.Contains(string(out), "no mount point specified") {
+			klog.Error(err, "Could not lazy unmount", "target", target, "out", string(out))
+			return err
+		}
+		break
+	}
+
+	// cleanup target path
+	if err := k8sMount.CleanupMountPoint(target, p.SafeFormatAndMount.Interface, false); err != nil {
+		klog.Info("Clean mount point error", "error", err)
+		return err
+	}
+
+	// check mount pod is need to delete
+	klog.Info("Delete target ref and check mount pod is need to delete or not.", "target", target, "podName", podName)
+
+	if podName == "" {
+		// mount pod not exist
+		klog.Info("Mount pod of target not exists.", "target", target)
+		return nil
+	}
+	pod, err := p.K8sClient.GetPod(ctx, podName, config.Namespace)
+	if err != nil && !k8serrors.IsNotFound(err) {
+		klog.Error(err, "Get pod err", "podName", podName)
+		return err
+	}
+
+	// if mount pod not exists.
+	if pod == nil {
+		klog.Info("Mount pod not exists", "podName", podName)
+		return nil
+	}
+
+	key := util.GetReferenceKey(target)
+	klog.V(1).Info("Target hash of target", "target", target, "key", key)
+
+	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		po, err := p.K8sClient.GetPod(ctx, pod.Name, pod.Namespace)
+		if err != nil {
+			return err
+		}
+		annotation := po.Annotations
+		if _, ok := annotation[key]; !ok {
+			klog.Info("Target ref in pod already not exists.", "target", target, "podName", pod.Name)
+			return nil
+		}
+		return resource.DelPodAnnotation(ctx, p.K8sClient, pod, []string{key})
+	})
+	if err != nil {
+		klog.Error(err, "Remove ref of target err", "target", target)
+		return err
+	}
+	return nil
+}
+
+func (p *PodMount) GetMountRef(ctx context.Context, target, podName string) (int, error) {
+	pod, err := p.K8sClient.GetPod(ctx, podName, config.Namespace)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return 0, nil
+		}
+		klog.Error(err, "Get mount pod error", "podName", podName)
+		return 0, err
+	}
+	return GetRef(pod), nil
 }
