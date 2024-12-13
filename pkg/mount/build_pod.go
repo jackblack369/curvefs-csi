@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-// NewMountPod generates a pod with juicefs client
+// NewMountPod generates a pod with dingofs client
 func NewMountPod(podName string, dfsSetting *config.DfsSetting) (*corev1.Pod, error) {
 	container := genCommonContainer(dfsSetting)
 	pod := genCommonPod(container, dfsSetting)
@@ -499,37 +499,4 @@ func genInitCommand(dfsSetting *config.DfsSetting) string {
 		formatCmd = strings.Join(args, " ")
 	}
 	return formatCmd
-}
-
-func GenAndValidOptions(dfsSetting *config.DfsSetting, options []string) error {
-	mountOptions := []string{}
-	for _, option := range options {
-		mountOption := strings.TrimSpace(option)
-		ops := strings.Split(mountOption, "=")
-		if len(ops) > 2 {
-			return fmt.Errorf("invalid mount option: %s", mountOption)
-		}
-		if len(ops) == 2 {
-			mountOption = fmt.Sprintf("%s=%s", strings.TrimSpace(ops[0]), strings.TrimSpace(ops[1]))
-		}
-		if mountOption == "writeback" {
-			klog.Info("writeback is not suitable in CSI, please do not use it.", "volumeId", dfsSetting.VolumeId)
-		}
-		if len(ops) == 2 && ops[0] == "buffer-size" {
-			memLimit := dfsSetting.Attr.Resources.Limits[corev1.ResourceMemory]
-			memLimitByte := memLimit.Value()
-
-			// buffer-size is in MiB, turn to byte
-			bufferSize, err := util.ParseToBytes(ops[1])
-			if err != nil {
-				return fmt.Errorf("invalid mount option: %s", mountOption)
-			}
-			if bufferSize > uint64(memLimitByte) {
-				return fmt.Errorf("buffer-size %s MiB is greater than pod memory limit %s", ops[1], memLimit.String())
-			}
-		}
-		mountOptions = append(mountOptions, mountOption)
-	}
-	dfsSetting.Options = mountOptions
-	return nil
 }

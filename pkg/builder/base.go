@@ -31,6 +31,7 @@ import (
 
 	"github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
+	"github.com/jackblack369/dingofs-csi/pkg/util/security"
 )
 
 const (
@@ -39,7 +40,7 @@ const (
 	UpdateDBCfgFile     = "/etc/updatedb.conf"
 	JfsFuseFdPathName   = "jfs-fuse-fd"
 	JfsFuseFsPathInPod  = "/tmp"
-	JfsFuseFsPathInHost = "/var/run/juicefs-csi"
+	JfsFuseFsPathInHost = "/var/run/dingofs-csi"
 	JfsCommEnv          = "JFS_SUPER_COMM"
 )
 
@@ -149,7 +150,7 @@ func (r *BaseBuilder) genMountCommand() string {
 	options := r.dfsSetting.Options
 
 	klog.Info("ceMount", "source", util.StripPasswd(r.dfsSetting.Source), "mountPath", r.dfsSetting.MountPath)
-	mountArgs := []string{"exec", config.CliPath, "${metaurl}", util.EscapeBashStr(r.dfsSetting.MountPath)}
+	mountArgs := []string{"exec", config.CliPath, "${metaurl}", security.EscapeBashStr(r.dfsSetting.MountPath)}
 	if !util.ContainsPrefix(options, "metrics=") {
 		if r.dfsSetting.Attr.HostNetwork {
 			// Pick up a random (useable) port for hostNetwork MountPods.
@@ -158,7 +159,7 @@ func (r *BaseBuilder) genMountCommand() string {
 			options = append(options, "metrics=0.0.0.0:9567")
 		}
 	}
-	mountArgs = append(mountArgs, "-o", util.EscapeBashStr(strings.Join(options, ",")))
+	mountArgs = append(mountArgs, "-o", security.EscapeBashStr(strings.Join(options, ",")))
 	cmd = strings.Join(mountArgs, " ")
 
 	return util.QuoteForShell(cmd)
@@ -221,7 +222,7 @@ func (r *BaseBuilder) getJobCommand() string {
 	options := util.StripReadonlyOption(r.dfsSetting.Options)
 	args := []string{config.CliPath, "${metaurl}", "/mnt/jfs"}
 	if len(options) != 0 {
-		args = append(args, "-o", util.EscapeBashStr(strings.Join(options, ",")))
+		args = append(args, "-o", security.EscapeBashStr(strings.Join(options, ",")))
 	}
 	cmd = strings.Join(args, " ")
 	return util.QuoteForShell(cmd)
@@ -272,7 +273,7 @@ func (r *BaseBuilder) _genMetadata() (labels map[string]string, annotations map[
 
 // _genJuiceVolumes generates volumes & volumeMounts
 // 1. if encrypt_rsa_key is set, mount secret to /root/.rsa
-// 2. if initconfig is set, mount secret to /etc/juicefs
+// 2. if initconfig is set, mount secret to /etc/dingofs
 // 3. configs in secret
 func (r *BaseBuilder) _genJuiceVolumes() ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes := []corev1.Volume{}

@@ -1,12 +1,16 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackblack369/dingofs-csi/pkg/k8sclient"
+	"github.com/jackblack369/dingofs-csi/pkg/util/security"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
@@ -73,8 +77,8 @@ type AppInfo struct {
 type PodAttr struct {
 	Namespace            string
 	MountPointPath       string
-	JFSConfigPath        string
-	JFSMountPriorityName string
+	DFSConfigPath        string
+	DFSMountPriorityName string
 	ServiceAccountName   string
 
 	Resources corev1.ResourceRequirements
@@ -553,4 +557,281 @@ func (s *DfsSetting) ParseFormatOptions() ([][]string, error) {
 		parsedFormatOptions = append(parsedFormatOptions, []string{key, value})
 	}
 	return parsedFormatOptions, nil
+}
+
+func ParseSetting(secrets, volCtx map[string]string, options []string, pv *corev1.PersistentVolume, pvc *corev1.PersistentVolumeClaim) (*DfsSetting, error) {
+	dfsSetting := DfsSetting{
+		Options: []string{},
+	}
+	if options != nil {
+		dfsSetting.Options = options
+	}
+	if secrets == nil {
+		return &dfsSetting, nil
+	}
+
+	secretStr, err := json.Marshal(secrets)
+	if err != nil {
+		return nil, err
+	}
+	if err := ParseYamlOrJson(string(secretStr), &dfsSetting); err != nil {
+		return nil, err
+	}
+
+	if secrets["name"] == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "Empty name")
+	}
+	dfsSetting.Name = secrets["name"]
+	dfsSetting.Storage = secrets["storage"]
+	dfsSetting.Envs = make(map[string]string)
+	dfsSetting.Configs = make(map[string]string)
+	dfsSetting.ClientConfPath = DefaultClientConfPath
+	dfsSetting.CacheDirs = []string{}
+	dfsSetting.CachePVCs = []CachePVC{}
+	dfsSetting.PV = pv
+	dfsSetting.PVC = pvc
+
+	if secrets["secretkey"] != "" {
+		dfsSetting.SecretKey = secrets["secretkey"]
+	}
+	if secrets["secretkey2"] != "" {
+		dfsSetting.SecretKey2 = secrets["secretkey2"]
+	}
+
+	if secrets["configs"] != "" {
+		configStr := secrets["configs"]
+		configs := make(map[string]string)
+		klog.V(1).Info("Get configs in secret", "config", configStr)
+		if err := ParseYamlOrJson(configStr, &configs); err != nil {
+			return nil, err
+		}
+		dfsSetting.Configs = configs
+	}
+
+	if secrets["envs"] != "" {
+		envStr := secrets["envs"]
+		env := make(map[string]string)
+		klog.V(1).Info("Get envs in secret", "env", envStr)
+		if err := ParseYamlOrJson(envStr, &env); err != nil {
+			return nil, err
+		}
+		dfsSetting.Envs = env
+	}
+
+	if volCtx != nil {
+		// subPath
+		if volCtx["subPath"] != "" {
+			dfsSetting.SubPath = volCtx["subPath"]
+		}
+
+		if volCtx[CleanCacheKey] == "true" {
+			dfsSetting.CleanCache = true
+		}
+		delay := volCtx[DeleteDelay]
+		if delay != "" {
+			if _, err := time.ParseDuration(delay); err != nil {
+				return nil, fmt.Errorf("can't parse delay time %s", delay)
+			}
+			dfsSetting.DeletedDelay = delay
+		}
+
+		var hostPaths []string
+		if volCtx[MountPodHostPath] != "" {
+			for _, v := range strings.Split(volCtx[MountPodHostPath], ",") {
+				p := strings.TrimSpace(v)
+				if p != "" {
+					hostPaths = append(hostPaths, strings.TrimSpace(v))
+				}
+			}
+			dfsSetting.HostPath = hostPaths
+		}
+	}
+
+	if err := GenPodAttrWithCfg(&dfsSetting, volCtx); err != nil {
+		return nil, fmt.Errorf("GenPodAttrWithCfg error: %v", err)
+	}
+	if err := GenAndValidOptions(&dfsSetting, options); err != nil {
+		return nil, fmt.Errorf("genAndValidOptions error: %v", err)
+	}
+	// TODO generate cache dirs
+	//if err := genCacheDirs(&dfsSetting, volCtx); err != nil {
+	//	return nil, fmt.Errorf("genCacheDirs error: %v", err)
+	//}
+	return &dfsSetting, nil
+}
+
+func GenAndValidOptions(dfsSetting *DfsSetting, options []string) error {
+	mountOptions := []string{}
+	for _, option := range options {
+		mountOption := strings.TrimSpace(option)
+		ops := strings.Split(mountOption, "=")
+		if len(ops) > 2 {
+			return fmt.Errorf("invalid mount option: %s", mountOption)
+		}
+		if len(ops) == 2 {
+			mountOption = fmt.Sprintf("%s=%s", strings.TrimSpace(ops[0]), strings.TrimSpace(ops[1]))
+		}
+		if mountOption == "writeback" {
+			klog.Info("writeback is not suitable in CSI, please do not use it.", "volumeId", dfsSetting.VolumeId)
+		}
+		if len(ops) == 2 && ops[0] == "buffer-size" {
+			memLimit := dfsSetting.Attr.Resources.Limits[corev1.ResourceMemory]
+			memLimitByte := memLimit.Value()
+
+			// buffer-size is in MiB, turn to byte
+			bufferSize, err := ParseToBytes(ops[1])
+			if err != nil {
+				return fmt.Errorf("invalid mount option: %s", mountOption)
+			}
+			if bufferSize > uint64(memLimitByte) {
+				return fmt.Errorf("buffer-size %s MiB is greater than pod memory limit %s", ops[1], memLimit.String())
+			}
+		}
+		mountOptions = append(mountOptions, mountOption)
+	}
+	dfsSetting.Options = mountOptions
+	return nil
+}
+
+// ParseToBytes parses a string with a unit suffix (e.g. "1M", "2G") to bytes.
+// default unit is M
+func ParseToBytes(value string) (uint64, error) {
+	if len(value) == 0 {
+		return 0, nil
+	}
+	s := value
+	unit := byte('M')
+	if c := s[len(s)-1]; c < '0' || c > '9' {
+		unit = c
+		s = s[:len(s)-1]
+	}
+	val, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("cannot parse %s to bytes", value)
+	}
+	var shift int
+	switch unit {
+	case 'k', 'K':
+		shift = 10
+	case 'm', 'M':
+		shift = 20
+	case 'g', 'G':
+		shift = 30
+	case 't', 'T':
+		shift = 40
+	case 'p', 'P':
+		shift = 50
+	case 'e', 'E':
+		shift = 60
+	default:
+		return 0, fmt.Errorf("cannot parse %s to bytes, invalid unit", value)
+	}
+	val *= float64(uint64(1) << shift)
+
+	return uint64(val), nil
+}
+
+// GenPodAttrWithMountPod generate pod attr with mount pod
+// Return the latest pod attributes following the priorities below:
+//
+// 1. original mount pod
+// 2. pvc annotations
+// 3. global config
+func GenPodAttrWithMountPod(ctx context.Context, client *k8sclient.K8sClient, mountPod *corev1.Pod) (*PodAttr, error) {
+	attr := &PodAttr{
+		Namespace:            mountPod.Namespace,
+		MountPointPath:       MountPointPath,
+		DFSConfigPath:        DFSConfigPath,
+		DFSMountPriorityName: DFSMountPriorityName,
+		HostNetwork:          mountPod.Spec.HostNetwork,
+		HostAliases:          mountPod.Spec.HostAliases,
+		HostPID:              mountPod.Spec.HostPID,
+		HostIPC:              mountPod.Spec.HostIPC,
+		DNSConfig:            mountPod.Spec.DNSConfig,
+		DNSPolicy:            mountPod.Spec.DNSPolicy,
+		ImagePullSecrets:     mountPod.Spec.ImagePullSecrets,
+		Tolerations:          mountPod.Spec.Tolerations,
+		PreemptionPolicy:     mountPod.Spec.PreemptionPolicy,
+		ServiceAccountName:   mountPod.Spec.ServiceAccountName,
+		Labels:               make(map[string]string),
+		Annotations:          make(map[string]string),
+	}
+	if mountPod.Spec.Containers != nil && len(mountPod.Spec.Containers) > 0 {
+		attr.Image = mountPod.Spec.Containers[0].Image
+		attr.Resources = mountPod.Spec.Containers[0].Resources
+	}
+	for k, v := range mountPod.Labels {
+		attr.Labels[k] = v
+	}
+	for k, v := range mountPod.Annotations {
+		attr.Annotations[k] = v
+	}
+	pvName := mountPod.Annotations[UniqueId]
+	pv, err := client.GetPersistentVolume(ctx, pvName)
+	if err != nil {
+		klog.Error(err, "Get pv error", "pv", pvName)
+		return nil, err
+	}
+	pvc, err := client.GetPersistentVolumeClaim(ctx, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace)
+	if err != nil {
+		klog.Error(err, "Get pvc error", "namespace", pv.Spec.ClaimRef.Namespace, "name", pv.Spec.ClaimRef.Name)
+		return nil, err
+	}
+	cpuLimit := pvc.Annotations[MountPodCpuLimitKey]
+	memoryLimit := pvc.Annotations[MountPodMemLimitKey]
+	cpuRequest := pvc.Annotations[MountPodCpuRequestKey]
+	memoryRequest := pvc.Annotations[MountPodMemRequestKey]
+	resources, err := ParsePodResources(cpuLimit, memoryLimit, cpuRequest, memoryRequest)
+	if err != nil {
+		return nil, fmt.Errorf("parse pvc resources error: %v", err)
+	}
+	attr.Resources = resources
+	setting := &DfsSetting{
+		PV:        pv,
+		PVC:       pvc,
+		Name:      mountPod.Annotations[DingoFSID],
+		VolumeId:  mountPod.Annotations[UniqueId],
+		MountPath: filepath.Join(PodMountBase, pvName) + mountPod.Name[len(mountPod.Name)-7:],
+		Options:   pv.Spec.MountOptions,
+	}
+	if v, ok := pv.Spec.CSI.VolumeAttributes["subPath"]; ok && v != "" {
+		setting.SubPath = v
+	}
+	setting.Attr = attr
+	// apply config patch
+	ApplyConfigPatch(setting)
+	return attr, nil
+}
+
+func (s *DfsSetting) RepresentFormatOptions(parsedOptions [][]string) []string {
+	options := make([]string, 0)
+	for _, pair := range parsedOptions {
+		option := security.EscapeBashStr(pair[0])
+		if pair[1] != "" {
+			option = fmt.Sprintf("%s=%s", option, security.EscapeBashStr(pair[1]))
+		}
+		options = append(options, "--"+option)
+	}
+	return options
+}
+
+func (s *DfsSetting) StripFormatOptions(parsedOptions [][]string, strippedKeys []string) []string {
+	options := make([]string, 0)
+	strippedMap := make(map[string]bool)
+	for _, key := range strippedKeys {
+		strippedMap[key] = true
+	}
+
+	for _, pair := range parsedOptions {
+		option := security.EscapeBashStr(pair[0])
+		if pair[1] != "" {
+			if strippedMap[pair[0]] {
+				option = fmt.Sprintf("%s=${%s}", option, pair[0])
+			} else {
+				option = fmt.Sprintf("%s=%s", option, security.EscapeBashStr(pair[1]))
+			}
+		}
+		options = append(options, "--"+option)
+	}
+	return options
 }

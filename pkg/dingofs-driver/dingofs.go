@@ -2,7 +2,6 @@ package dingofsdriver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,17 +10,17 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/k8sclient"
 	podmount "github.com/jackblack369/dingofs-csi/pkg/mount"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
 	"github.com/jackblack369/dingofs-csi/pkg/util/resource"
-
-	"github.com/pkg/errors"
+	"github.com/jackblack369/dingofs-csi/pkg/util/security"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,7 +43,7 @@ type Provider interface {
 	Settings(ctx context.Context, volumeID string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error)
 	GetSubPath(ctx context.Context, volumeID string) (string, error)
 	CreateTarget(ctx context.Context, target string) error
-	// AuthFs(ctx context.Context, secrets map[string]string, dfsSetting *config.DfsSetting, force bool) (string, error)
+	AuthFs(ctx context.Context, secrets map[string]string, dfsSetting *config.DfsSetting, force bool) (string, error)
 	// Status(ctx context.Context, metaUrl string) error
 }
 
@@ -198,7 +197,7 @@ func (d *dingofs) Settings(ctx context.Context, volumeID string, secrets, volCtx
 		}
 	}
 
-	dfsSetting, err := ParseSetting(secrets, volCtx, options, pv, pvc)
+	dfsSetting, err := config.ParseSetting(secrets, volCtx, options, pv, pvc)
 	if err != nil {
 		klog.Error(err, "Parse config error", "secret", secrets["name"])
 		return nil, err
@@ -233,107 +232,6 @@ func (d *dingofs) getUniqueId(ctx context.Context, volumeId string) (string, err
 	return volumeId, nil
 }
 
-func ParseSetting(secrets, volCtx map[string]string, options []string, pv *corev1.PersistentVolume, pvc *corev1.PersistentVolumeClaim) (*config.DfsSetting, error) {
-	dfsSetting := config.DfsSetting{
-		Options: []string{},
-	}
-	if options != nil {
-		dfsSetting.Options = options
-	}
-	if secrets == nil {
-		return &dfsSetting, nil
-	}
-
-	secretStr, err := json.Marshal(secrets)
-	if err != nil {
-		return nil, err
-	}
-	if err := config.ParseYamlOrJson(string(secretStr), &dfsSetting); err != nil {
-		return nil, err
-	}
-
-	if secrets["name"] == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "Empty name")
-	}
-	dfsSetting.Name = secrets["name"]
-	dfsSetting.Storage = secrets["storage"]
-	dfsSetting.Envs = make(map[string]string)
-	dfsSetting.Configs = make(map[string]string)
-	dfsSetting.ClientConfPath = config.DefaultClientConfPath
-	dfsSetting.CacheDirs = []string{}
-	dfsSetting.CachePVCs = []config.CachePVC{}
-	dfsSetting.PV = pv
-	dfsSetting.PVC = pvc
-
-	if secrets["secretkey"] != "" {
-		dfsSetting.SecretKey = secrets["secretkey"]
-	}
-	if secrets["secretkey2"] != "" {
-		dfsSetting.SecretKey2 = secrets["secretkey2"]
-	}
-
-	if secrets["configs"] != "" {
-		configStr := secrets["configs"]
-		configs := make(map[string]string)
-		klog.V(1).Info("Get configs in secret", "config", configStr)
-		if err := config.ParseYamlOrJson(configStr, &configs); err != nil {
-			return nil, err
-		}
-		dfsSetting.Configs = configs
-	}
-
-	if secrets["envs"] != "" {
-		envStr := secrets["envs"]
-		env := make(map[string]string)
-		klog.V(1).Info("Get envs in secret", "env", envStr)
-		if err := config.ParseYamlOrJson(envStr, &env); err != nil {
-			return nil, err
-		}
-		dfsSetting.Envs = env
-	}
-
-	if volCtx != nil {
-		// subPath
-		if volCtx["subPath"] != "" {
-			dfsSetting.SubPath = volCtx["subPath"]
-		}
-
-		if volCtx[config.CleanCacheKey] == "true" {
-			dfsSetting.CleanCache = true
-		}
-		delay := volCtx[config.DeleteDelay]
-		if delay != "" {
-			if _, err := time.ParseDuration(delay); err != nil {
-				return nil, fmt.Errorf("can't parse delay time %s", delay)
-			}
-			dfsSetting.DeletedDelay = delay
-		}
-
-		var hostPaths []string
-		if volCtx[config.MountPodHostPath] != "" {
-			for _, v := range strings.Split(volCtx[config.MountPodHostPath], ",") {
-				p := strings.TrimSpace(v)
-				if p != "" {
-					hostPaths = append(hostPaths, strings.TrimSpace(v))
-				}
-			}
-			dfsSetting.HostPath = hostPaths
-		}
-	}
-
-	if err := config.GenPodAttrWithCfg(&dfsSetting, volCtx); err != nil {
-		return nil, fmt.Errorf("GenPodAttrWithCfg error: %v", err)
-	}
-	if err := podmount.GenAndValidOptions(&dfsSetting, options); err != nil {
-		return nil, fmt.Errorf("genAndValidOptions error: %v", err)
-	}
-	// TODO generate cache dirs
-	//if err := genCacheDirs(&dfsSetting, volCtx); err != nil {
-	//	return nil, fmt.Errorf("genCacheDirs error: %v", err)
-	//}
-	return &dfsSetting, nil
-}
-
 // GetDfsVolUUID get UUID from result of `dingofs status <volumeName>`
 func (d *dingofs) GetDfsVolUUID(ctx context.Context, dfsSetting *config.DfsSetting) (string, error) {
 	cmdCtx, cmdCancel := context.WithTimeout(ctx, 8*config.DefaultCheckTimeout)
@@ -341,7 +239,7 @@ func (d *dingofs) GetDfsVolUUID(ctx context.Context, dfsSetting *config.DfsSetti
 	statusCmd := d.Exec.CommandContext(cmdCtx, config.CliPath, "status", dfsSetting.Source)
 	envs := syscall.Environ()
 	for key, val := range dfsSetting.Envs {
-		envs = append(envs, fmt.Sprintf("%s=%s", util.EscapeBashStr(key), util.EscapeBashStr(val)))
+		envs = append(envs, fmt.Sprintf("%s=%s", security.EscapeBashStr(key), security.EscapeBashStr(val)))
 	}
 	statusCmd.SetEnv(envs)
 	stdout, err := statusCmd.CombinedOutput()
@@ -439,7 +337,7 @@ func (d *dingofs) SetQuota(ctx context.Context, secrets map[string]string, dfsSe
 	defer cmdCancel()
 	envs := syscall.Environ()
 	for key, val := range dfsSetting.Envs {
-		envs = append(envs, fmt.Sprintf("%s=%s", util.EscapeBashStr(key), util.EscapeBashStr(val)))
+		envs = append(envs, fmt.Sprintf("%s=%s", security.EscapeBashStr(key), security.EscapeBashStr(val)))
 	}
 	var err error
 
@@ -468,7 +366,7 @@ func wrapSetQuotaErr(res string, err error) error {
 	if err != nil {
 		re := string(res)
 		if strings.Contains(re, "invalid command: quota") || strings.Contains(re, "No help topic for 'quota'") {
-			klog.Info("juicefs inside do not support quota, skip it.")
+			klog.Info("dingofs inside do not support quota, skip it.")
 			return nil
 		}
 		return errors.Wrap(err, re)
@@ -555,4 +453,119 @@ func (d *dingofs) DfsUnmount(ctx context.Context, volumeId, mountPath string) er
 		return d.podMount.DUmount(ctx, mountPath, podName)
 	}
 	return nil
+}
+
+// AuthFs authenticates JuiceFS, enterprise edition only
+func (d *dingofs) AuthFs(ctx context.Context, secrets map[string]string, setting *config.DfsSetting, force bool) (string, error) {
+	if secrets == nil {
+		return "", status.Errorf(codes.InvalidArgument, "Nil secrets")
+	}
+
+	if secrets["name"] == "" {
+		return "", status.Errorf(codes.InvalidArgument, "Empty name")
+	}
+
+	args := []string{"auth", security.EscapeBashStr(secrets["name"])}
+	cmdArgs := []string{config.CliPath, "auth", security.EscapeBashStr(secrets["name"])}
+
+	keysCompatible := map[string]string{
+		"accesskey":  "access-key",
+		"accesskey2": "access-key2",
+		"secretkey":  "secret-key",
+		"secretkey2": "secret-key2",
+	}
+	// compatible
+	for compatibleKey, realKey := range keysCompatible {
+		if value, ok := secrets[compatibleKey]; ok {
+			klog.Info("transform key", "compatibleKey", compatibleKey, "realKey", realKey)
+			secrets[realKey] = value
+			delete(secrets, compatibleKey)
+		}
+	}
+
+	keys := []string{
+		"access-key",
+		"access-key2",
+		"bucket",
+		"bucket2",
+		"subdir",
+	}
+	keysStripped := []string{
+		"token",
+		"secret-key",
+		"secret-key2",
+		"passphrase",
+	}
+	strippedkey := map[string]string{
+		"secret-key":  "secretkey",
+		"secret-key2": "secretkey2",
+	}
+	for _, k := range keys {
+		if secrets[k] != "" {
+			v := security.EscapeBashStr(secrets[k])
+			cmdArgs = append(cmdArgs, fmt.Sprintf("--%s=%s", k, v))
+			args = append(args, fmt.Sprintf("--%s=%s", k, v))
+		}
+	}
+	for _, k := range keysStripped {
+		if secrets[k] != "" {
+			argKey := k
+			if v, ok := strippedkey[k]; ok {
+				argKey = v
+			}
+			cmdArgs = append(cmdArgs, fmt.Sprintf("--%s=${%s}", k, argKey))
+			args = append(args, fmt.Sprintf("--%s=%s", k, security.EscapeBashStr(secrets[k])))
+		}
+	}
+	if v, ok := os.LookupEnv("JFS_NO_UPDATE_CONFIG"); ok && v == "enabled" {
+		cmdArgs = append(cmdArgs, "--no-update")
+		args = append(args, "--no-update")
+		if secrets["bucket"] == "" {
+			return "", fmt.Errorf("bucket argument is required when --no-update option is provided")
+		}
+	}
+	if setting.FormatOptions != "" {
+		options, err := setting.ParseFormatOptions()
+		if err != nil {
+			return "", status.Errorf(codes.InvalidArgument, "Parse format options error: %v", err)
+		}
+		args = append(args, setting.RepresentFormatOptions(options)...)
+		stripped := setting.StripFormatOptions(options, []string{"session-token"})
+		cmdArgs = append(cmdArgs, stripped...)
+	}
+
+	if setting.ClientConfPath != "" {
+		cmdArgs = append(cmdArgs, fmt.Sprintf("--conf-dir=%s", setting.ClientConfPath))
+		args = append(args, fmt.Sprintf("--conf-dir=%s", setting.ClientConfPath))
+	}
+
+	klog.Info("AuthFs cmd", "args", cmdArgs)
+
+	// only run command when in process mode
+	if !force {
+		cmd := strings.Join(cmdArgs, " ")
+		return cmd, nil
+	}
+
+	cmdCtx, cmdCancel := context.WithTimeout(ctx, 8*defaultCheckTimeout)
+	defer cmdCancel()
+	authCmd := d.Exec.CommandContext(cmdCtx, config.CliPath, args...)
+	envs := syscall.Environ()
+	for key, val := range setting.Envs {
+		envs = append(envs, fmt.Sprintf("%s=%s", security.EscapeBashStr(key), security.EscapeBashStr(val)))
+	}
+	envs = append(envs, "JFS_NO_CHECK_OBJECT_STORAGE=1")
+	authCmd.SetEnv(envs)
+	res, err := authCmd.CombinedOutput()
+	klog.Info("auth output", "output", res)
+	if err != nil {
+		re := string(res)
+		klog.Error(err, "auth error")
+		if cmdCtx.Err() == context.DeadlineExceeded {
+			re = fmt.Sprintf("juicefs auth %s timed out", 8*defaultCheckTimeout)
+			return "", errors.New(re)
+		}
+		return "", errors.Wrap(err, re)
+	}
+	return string(res), nil
 }

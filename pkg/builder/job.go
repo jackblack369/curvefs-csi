@@ -28,6 +28,7 @@ import (
 
 	"github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
+	"github.com/jackblack369/dingofs-csi/pkg/util/security"
 )
 
 const DefaultJobTTLSecond = int32(5)
@@ -77,7 +78,7 @@ func (r *JobBuilder) NewJobForCleanCache() *batchv1.Job {
 func GenJobNameByVolumeId(volumeId string) string {
 	h := sha256.New()
 	h.Write([]byte(volumeId))
-	return fmt.Sprintf("juicefs-%x", h.Sum(nil))[:16]
+	return fmt.Sprintf("dingofs-%x", h.Sum(nil))[:16]
 }
 
 func (r *JobBuilder) newJob(jobName string) *batchv1.Job {
@@ -150,14 +151,14 @@ func (r *JobBuilder) newCleanJob(jobName string) *batchv1.Job {
 
 func (r *JobBuilder) getCreateVolumeCmd() string {
 	cmd := r.getJobCommand()
-	subpath := util.EscapeBashStr(r.dfsSetting.SubPath)
+	subpath := security.EscapeBashStr(r.dfsSetting.SubPath)
 	return fmt.Sprintf("%s && if [ ! -d /mnt/jfs/%s ]; then mkdir -m 777 /mnt/jfs/%s; fi;", cmd, subpath, subpath)
 }
 
 func (r *JobBuilder) getDeleteVolumeCmd() string {
 	cmd := r.getJobCommand()
 	jfsPath := config.CliPath
-	subpath := util.EscapeBashStr(r.dfsSetting.SubPath)
+	subpath := security.EscapeBashStr(r.dfsSetting.SubPath)
 	// TODO modify the command to delete the volume
 	return fmt.Sprintf("%s && if [ -d /mnt/jfs/%s ]; then %s rmr /mnt/jfs/%s; fi;", cmd, subpath, jfsPath, subpath)
 }

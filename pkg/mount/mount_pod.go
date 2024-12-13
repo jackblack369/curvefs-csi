@@ -41,13 +41,13 @@ import (
 type MntInterface interface {
 	k8sMount.Interface
 	DMount(ctx context.Context, appInfo *config.AppInfo, dfsSetting *config.DfsSetting) error
-	// DCreateVolume(ctx context.Context, jfsSetting *jfsConfig.JfsSetting) error
+	// DCreateVolume(ctx context.Context, dfsSetting *jfsConfig.dfsSetting) error
 	DeleteVolume(ctx context.Context, dfsSetting *config.DfsSetting) error
 	GetMountRef(ctx context.Context, target, podName string) (int, error) // podName is only used by podMount
 	UmountTarget(ctx context.Context, target, podName string) error       // podName is only used by podMount
 	DUmount(ctx context.Context, target, podName string) error            // podName is only used by podMount
 	// AddRefOfMount(ctx context.Context, target string, podName string) error
-	// CleanCache(ctx context.Context, image string, id string, volumeId string, cacheDirs []string) error
+	CleanCache(ctx context.Context, image string, id string, volumeId string, cacheDirs []string) error
 }
 
 type PodMount struct {
@@ -293,7 +293,7 @@ func (p *PodMount) JUmount(ctx context.Context, target, podName string) error {
 		}
 
 		if GetRef(po) != 0 {
-			klog.Info("pod still has juicefs- refs.", "podName", podName)
+			klog.Info("pod still has dingofs- refs.", "podName", podName)
 			return nil
 		}
 
@@ -304,7 +304,7 @@ func (p *PodMount) JUmount(ctx context.Context, target, podName string) error {
 		}
 		if !shouldDelay {
 			// do not set delay delete, delete it now
-			klog.Info("pod has no juicefs- refs. delete it.", "podName", podName)
+			klog.Info("pod has no dingofs- refs. delete it.", "podName", podName)
 			if err := p.K8sClient.DeletePod(ctx, po); err != nil {
 				klog.Info("Delete pod error", "podName", podName, "error", err)
 				return err
@@ -312,7 +312,7 @@ func (p *PodMount) JUmount(ctx context.Context, target, podName string) error {
 
 			// close socket
 			// if util.SupportFusePass(po.Spec.Containers[0].Image) {
-			// 	fuse.GlobalFds.StopFd(ctx, po.Labels[common.PodJuiceHashLabelKey])
+			// 	fuse.GlobalFds.StopFd(ctx, po.Labels[config.PodJuiceHashLabelKey])
 			// }
 
 			// delete related secret
@@ -436,7 +436,7 @@ func (p *PodMount) DUmount(ctx context.Context, target, podName string) error {
 		}
 
 		if GetRef(po) != 0 {
-			klog.Info("pod still has juicefs- refs.", "podName", podName)
+			klog.Info("pod still has dingofs- refs.", "podName", podName)
 			return nil
 		}
 
@@ -447,7 +447,7 @@ func (p *PodMount) DUmount(ctx context.Context, target, podName string) error {
 		}
 		if !shouldDelay {
 			// do not set delay delete, delete it now
-			klog.Info("pod has no juicefs- refs. delete it.", "podName", podName)
+			klog.Info("pod has no dingofs- refs. delete it.", "podName", podName)
 			if err := p.K8sClient.DeletePod(ctx, po); err != nil {
 				klog.Info("Delete pod error", "podName", podName, "error", err)
 				return err
@@ -455,7 +455,7 @@ func (p *PodMount) DUmount(ctx context.Context, target, podName string) error {
 
 			// close socket
 			// if util.SupportFusePass(po.Spec.Containers[0].Image) {
-			// 	fuse.GlobalFds.StopFd(ctx, po.Labels[common.PodJuiceHashLabelKey])
+			// 	fuse.GlobalFds.StopFd(ctx, po.Labels[config.PodJuiceHashLabelKey])
 			// }
 
 			// delete related secret
@@ -570,4 +570,37 @@ func (p *PodMount) GetMountRef(ctx context.Context, target, podName string) (int
 		return 0, err
 	}
 	return GetRef(pod), nil
+}
+
+func (p *PodMount) CleanCache(ctx context.Context, image string, id string, volumeId string, cacheDirs []string) error {
+	dfsSetting, err := config.ParseSetting(map[string]string{"name": id}, nil, []string{}, nil, nil)
+	if err != nil {
+		klog.Error(err, "parse jfs setting err")
+		return err
+	}
+	dfsSetting.Attr.Image = image
+	dfsSetting.VolumeId = volumeId
+	dfsSetting.CacheDirs = cacheDirs
+	dfsSetting.FSID = id
+	r := builder.NewJobBuilder(dfsSetting, 0)
+	job := r.NewJobForCleanCache()
+	klog.V(1).Info("Clean cache job", "jobName", job)
+	_, err = p.K8sClient.GetJob(ctx, job.Name, job.Namespace)
+	if err != nil && k8serrors.IsNotFound(err) {
+		klog.Info("create job", "jobName", job.Name)
+		_, err = p.K8sClient.CreateJob(ctx, job)
+	}
+	if err != nil {
+		klog.Error(err, "get or create job err", "jobName", job.Name)
+		return err
+	}
+	err = p.waitUtilJobCompleted(ctx, job.Name)
+	if err != nil {
+		klog.Error(err, "wait for job completed err and fall back to delete job")
+		// fall back if err
+		if e := p.K8sClient.DeleteJob(ctx, job.Name, job.Namespace); e != nil {
+			klog.Error(e, "delete job %s error: %v", "jobName", job.Name)
+		}
+	}
+	return nil
 }

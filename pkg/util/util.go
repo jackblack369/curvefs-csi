@@ -41,7 +41,6 @@ import (
 	"time"
 
 	"github.com/jackblack369/dingofs-csi/pkg/config"
-
 	"k8s.io/klog/v2"
 )
 
@@ -205,66 +204,6 @@ func QuoteForShell(cmd string) string {
 	return cmd
 }
 
-// ParseToBytes parses a string with a unit suffix (e.g. "1M", "2G") to bytes.
-// default unit is M
-func ParseToBytes(value string) (uint64, error) {
-	if len(value) == 0 {
-		return 0, nil
-	}
-	s := value
-	unit := byte('M')
-	if c := s[len(s)-1]; c < '0' || c > '9' {
-		unit = c
-		s = s[:len(s)-1]
-	}
-	val, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return 0, fmt.Errorf("cannot parse %s to bytes", value)
-	}
-	var shift int
-	switch unit {
-	case 'k', 'K':
-		shift = 10
-	case 'm', 'M':
-		shift = 20
-	case 'g', 'G':
-		shift = 30
-	case 't', 'T':
-		shift = 40
-	case 'p', 'P':
-		shift = 50
-	case 'e', 'E':
-		shift = 60
-	default:
-		return 0, fmt.Errorf("cannot parse %s to bytes, invalid unit", value)
-	}
-	val *= float64(uint64(1) << shift)
-
-	return uint64(val), nil
-}
-
-func EscapeBashStr(s string) string {
-	if !containsOne(s, []rune{'$', '`', '&', ';', '>', '|', '(', ')'}) {
-		return s
-	}
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `'`, `\'`)
-	return fmt.Sprintf(`$'%s'`, s)
-}
-
-func containsOne(target string, chars []rune) bool {
-	charMap := make(map[rune]bool, len(chars))
-	for _, c := range chars {
-		charMap[c] = true
-	}
-	for _, s := range target {
-		if charMap[s] {
-			return true
-		}
-	}
-	return false
-}
-
 func UmountPath(ctx context.Context, sourcePath string) {
 	out, err := exec.CommandContext(ctx, "umount", "-l", sourcePath).CombinedOutput()
 	if err != nil &&
@@ -336,4 +275,25 @@ func ParseEndpoint(endpoint string) (string, string, error) {
 	}
 
 	return scheme, addr, nil
+}
+
+// ContainsString checks if a string is in a string slice.
+func ContainsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckExpectValue Check if the key has the expected value
+func CheckExpectValue(m map[string]string, key string, targetValue string) bool {
+	if len(m) == 0 {
+		return false
+	}
+	if v, ok := m[key]; ok {
+		return v == targetValue
+	}
+	return false
 }

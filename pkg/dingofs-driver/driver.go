@@ -121,7 +121,7 @@ func parseNodeConfig() {
 	}
 
 	config.NodeName = os.Getenv("NODE_NAME")
-	config.Namespace = os.Getenv("JUICEFS_MOUNT_NAMESPACE")
+	config.Namespace = os.Getenv("DINGOFS_MOUNT_NAMESPACE")
 	config.PodName = os.Getenv("POD_NAME")
 
 	k8sclient, err := k8s.NewClient()

@@ -19,12 +19,21 @@ var (
 
 	CSIPod = corev1.Pod{}
 
-	Immutable   = false // csi driver is running in an immutable environment
-	Provisioner = false // provisioner in controller
+	Immutable       = false // csi driver is running in an immutable environment
+	Provisioner     = false // provisioner in controller
+	CacheClientConf = false // cache client config files and use directly in mount containers
 
+	DFSConfigPath            = "/var/lib/dingofs/config"
+	DFSMountPriorityName     = "system-node-critical"
+	DFSMountPreemptionPolicy = ""
+
+	DefaultMountImage = "dingodatabase/dingofs-csi:latest" // mount pod image, override by ENV
+	MountPointPath    = "/var/lib/dingofs/volume"
 )
 
 const (
+	CSINodeLabelKey      = "app"
+	CSINodeLabelValue    = "dingofs-csi-node"
 	PodTypeKey           = "app.kubernetes.io/name"
 	PodTypeValue         = "dingofs-mount"
 	PodUniqueIdLabelKey  = "volume-id"
@@ -43,15 +52,12 @@ const (
 	DefaultCheckTimeout = 2 * time.Second
 
 	MountContainerName = "dfs-mount"
-	MountPointPath     = "/var/lib/dingofs/volume"
 
 	// default value
 	DefaultMountPodCpuLimit   = "2000m"
 	DefaultMountPodMemLimit   = "5Gi"
 	DefaultMountPodCpuRequest = "1000m"
 	DefaultMountPodMemRequest = "1Gi"
-
-	DefaultMountImage = "dingodatabase/dingofs-csi:latest" // mount pod image, override by ENV
 
 	// config in pv
 	MountPodCpuLimitKey    = "dingofs/mount-cpu-limit"
@@ -66,9 +72,8 @@ const (
 	DeleteDelay            = "dingofs/mount-delete-delay"
 	MountPodHostPath       = "dingofs/host-path"
 
-	DfsInsideContainer   = "DFS_INSIDE_CONTAINER"
-	DFSMountPriorityName = "system-node-critical"
-	Finalizer            = "dingofs.com/finalizer"
+	DfsInsideContainer = "DFS_INSIDE_CONTAINER"
+	Finalizer          = "dingofs.com/finalizer"
 
 	CleanCache = "dingofs-clean-cache"
 	ROConfPath = "/etc/dingofs"
@@ -90,4 +95,13 @@ const (
 
 	// secret labels
 	DingofsSecretLabelKey = "dingofs/secret"
+
+	// webhook
+	WebhookName          = "juicefs-admission-webhook"
+	True                 = "true"
+	False                = "false"
+	inject               = ".juicefs.com/inject"
+	injectSidecar        = ".sidecar" + inject
+	InjectSidecarDone    = "done" + injectSidecar
+	InjectSidecarDisable = "disable" + injectSidecar
 )

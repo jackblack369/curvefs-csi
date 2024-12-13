@@ -33,7 +33,7 @@ var (
 	resourceLog = klog.NewKlogr().WithName("util")
 )
 
-// GetNamespace get juicefs pv & pvc from pod when pod namespace is empty
+// GetNamespace get dingofs pv & pvc from pod when pod namespace is empty
 func GetNamespace(ctx context.Context, client *k8sclient.K8sClient, pod *corev1.Pod) (namespace string, err error) {
 	namespace = pod.Namespace
 	if namespace != "" {
@@ -46,7 +46,7 @@ func GetNamespace(ctx context.Context, client *k8sclient.K8sClient, pod *corev1.
 	}
 
 	// if namespace of pod is empty (see issue: https://github.com/jackblack369/dingofs-csi/issues/644), should get namespace from pvc which is used by pod
-	// 1. get all juicefs pv
+	// 1. get all dingofs pv
 	// 2. get pvc from pod
 	// 3. check if pod's owner in the same namespace with pvc
 	pvs, err := client.ListPersistentVolumes(ctx, nil, nil)
