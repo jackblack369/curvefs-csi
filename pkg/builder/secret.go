@@ -34,7 +34,7 @@ const (
 var (
 	checkMountScriptContent = `ConditionPathIsMountPoint="$1"
 count=0
-while ! mount | grep $ConditionPathIsMountPoint | grep JuiceFS
+while ! mount | grep $ConditionPathIsMountPoint | grep DingoFS
 do
     sleep 3
     count=¬expr $count + 1¬

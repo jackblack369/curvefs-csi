@@ -455,7 +455,7 @@ func (d *dingofs) DfsUnmount(ctx context.Context, volumeId, mountPath string) er
 	return nil
 }
 
-// AuthFs authenticates JuiceFS, enterprise edition only
+// AuthFs authenticates DingoFS, enterprise edition only
 func (d *dingofs) AuthFs(ctx context.Context, secrets map[string]string, setting *config.DfsSetting, force bool) (string, error) {
 	if secrets == nil {
 		return "", status.Errorf(codes.InvalidArgument, "Nil secrets")
@@ -562,7 +562,7 @@ func (d *dingofs) AuthFs(ctx context.Context, secrets map[string]string, setting
 		re := string(res)
 		klog.Error(err, "auth error")
 		if cmdCtx.Err() == context.DeadlineExceeded {
-			re = fmt.Sprintf("juicefs auth %s timed out", 8*defaultCheckTimeout)
+			re = fmt.Sprintf("dingofs auth %s timed out", 8*defaultCheckTimeout)
 			return "", errors.New(re)
 		}
 		return "", errors.Wrap(err, re)

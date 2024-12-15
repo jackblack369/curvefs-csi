@@ -56,7 +56,7 @@ func GetNamespace(ctx context.Context, client *k8sclient.K8sClient, pod *corev1.
 	juicePVs := []corev1.PersistentVolume{}
 	for _, pv := range pvs {
 		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != config.DriverName || pv.Spec.ClaimRef == nil {
-			// skip if PV is not JuiceFS PV
+			// skip if PV is not DingoFS PV
 			continue
 		}
 		juicePVs = append(juicePVs, pv)

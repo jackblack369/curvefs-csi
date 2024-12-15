@@ -92,7 +92,7 @@ func getVol(ctx context.Context, client *k8sclient.K8sClient, pod *corev1.Pod, n
 			if err != nil {
 				return
 			}
-			// if PV is JuiceFS PV
+			// if PV is DingoFS PV
 			if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == config.DriverName {
 				used = true
 				pvPairGot = append(pvPairGot, PVPair{PV: pv, PVC: pvc})

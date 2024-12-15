@@ -105,7 +105,7 @@ func (r *JobBuilder) newJob(jobName string) *batchv1.Job {
 			Name:      jobName,
 			Namespace: r.dfsSetting.Attr.Namespace,
 			Labels: map[string]string{
-				config.PodTypeKey: config.JobTypeValue,
+				config.JobTypeKey: config.JobTypeValue,
 			},
 		},
 		Spec: batchv1.JobSpec{
@@ -132,7 +132,7 @@ func (r *JobBuilder) newCleanJob(jobName string) *batchv1.Job {
 			Name:      jobName,
 			Namespace: r.dfsSetting.Attr.Namespace,
 			Labels: map[string]string{
-				config.PodTypeKey: config.JobTypeValue,
+				config.JobTypeKey: config.JobTypeValue,
 			},
 		},
 		Spec: batchv1.JobSpec{

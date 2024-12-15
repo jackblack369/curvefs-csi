@@ -19,6 +19,7 @@ var (
 
 	CSIPod = corev1.Pod{}
 
+	MountManager    = false // manage mount pod in controller (only in k8s)
 	Immutable       = false // csi driver is running in an immutable environment
 	Provisioner     = false // provisioner in controller
 	CacheClientConf = false // cache client config files and use directly in mount containers
@@ -36,6 +37,8 @@ const (
 	CSINodeLabelValue    = "dingofs-csi-node"
 	PodTypeKey           = "app.kubernetes.io/name"
 	PodTypeValue         = "dingofs-mount"
+	JobTypeKey           = "batch.kubernetes.io/name"
+	JobTypeValue         = "dingofs-job"
 	PodUniqueIdLabelKey  = "volume-id"
 	PodJuiceHashLabelKey = "dingofs-hash"
 
@@ -91,16 +94,14 @@ const (
 
 	TmpPodMountBase = "/tmp"
 
-	JobTypeValue = "dingofs-job"
-
 	// secret labels
 	DingofsSecretLabelKey = "dingofs/secret"
 
 	// webhook
-	WebhookName          = "juicefs-admission-webhook"
+	WebhookName          = "dingofs-admission-webhook"
 	True                 = "true"
 	False                = "false"
-	inject               = ".juicefs.com/inject"
+	inject               = ".dingofs.com/inject"
 	injectSidecar        = ".sidecar" + inject
 	InjectSidecarDone    = "done" + injectSidecar
 	InjectSidecarDisable = "disable" + injectSidecar

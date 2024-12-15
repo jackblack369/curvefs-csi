@@ -44,7 +44,7 @@ type DfsSetting struct {
 	TargetPath string   // which bind to container path
 	Options    []string // mount options
 	SubPath    string   // subPath which is to be created or deleted
-	SecretName string   // secret with JuiceFS volume credentials
+	SecretName string   // secret with DingoFS volume credentials
 
 	Attr *PodAttr
 

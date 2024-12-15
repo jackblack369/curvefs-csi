@@ -13,14 +13,13 @@ import (
 	"github.com/jackblack369/dingofs-csi/cmd/app"
 	"github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/controller"
+	dingofsdriver "github.com/jackblack369/dingofs-csi/pkg/dingofs-driver"
 	"github.com/jackblack369/dingofs-csi/pkg/fuse"
 	k8s "github.com/jackblack369/dingofs-csi/pkg/k8sclient"
-	"github.com/jackblack369/dingofs-csi/pkg/util"
 	"k8s.io/klog/v2"
 )
 
 func parseNodeConfig() {
-	config.FormatInPod = formatInPod
 	if os.Getenv("DRIVER_NAME") != "" {
 		config.DriverName = os.Getenv("DRIVER_NAME")
 	}
@@ -66,27 +65,9 @@ func parseNodeConfig() {
 		config.DefaultMountImage = mountPodImage
 	}
 
-	if mountPodImage := os.Getenv("DINGOFS_MOUNT_IMAGE"); mountPodImage != "" {
-		// check if it's CE or EE
-		hasCE, hasEE := util.ImageResol(mountPodImage)
-		if hasCE {
-			config.DefaultCEMountImage = mountPodImage
-		}
-		if hasEE {
-			config.DefaultEEMountImage = mountPodImage
-		}
-	}
-	if os.Getenv("STORAGE_CLASS_SHARE_MOUNT") == "true" {
-		config.StorageClassShareMount = true
-	}
-
 	if config.PodName == "" || config.Namespace == "" {
 		klog.Info("Pod name & namespace can't be null.")
 		os.Exit(1)
-	}
-	config.ReconcilerInterval = reconcilerInterval
-	if config.ReconcilerInterval < 5 {
-		config.ReconcilerInterval = 5
 	}
 
 	k8sclient, err := k8s.NewClient()
@@ -125,28 +106,8 @@ func nodeRun(ctx context.Context) {
 		}
 	}()
 
-	registerer, registry := util.NewPrometheus(config.NodeName)
-	// http server for metrics
-	go func() {
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", promhttp.HandlerFor(
-			registry,
-			promhttp.HandlerOpts{
-				// Opt into OpenMetrics to support exemplars.
-				EnableOpenMetrics: true,
-			},
-		))
-		server := &http.Server{
-			Addr:    fmt.Sprintf(":%d", config.WebPort),
-			Handler: mux,
-		}
-		if err := server.ListenAndServe(); err != nil {
-			klog.Error(err, "failed to start metrics server")
-		}
-	}()
-
 	// enable pod manager in csi node
-	if !process && podManager {
+	if podManager {
 		needStartPodManager := false
 		if config.KubeletPort != "" && config.HostIp != "" {
 			if err := retry.OnError(retry.DefaultBackoff, func(err error) bool { return true }, func() error {
@@ -176,7 +137,7 @@ func nodeRun(ctx context.Context) {
 		klog.Info("Pod Reconciler Started")
 	}
 
-	drv, err := driver.NewDriver(endpoint, nodeID, leaderElection, leaderElectionNamespace, leaderElectionLeaseDuration, registerer)
+	drv, err := dingofsdriver.NewDriver(endpoint, nodeID)
 	if err != nil {
 		klog.Error(err, "fail to create driver")
 		os.Exit(1)

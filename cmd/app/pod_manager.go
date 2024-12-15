@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 
@@ -47,18 +48,15 @@ func NewPodManager() (*PodManager, error) {
 		return nil, err
 	}
 	mgr, err := ctrl.NewManager(conf, ctrl.Options{
-		Scheme:             scheme,
-		Port:               9442,
-		MetricsBindAddress: "0.0.0.0:8082",
-		LeaderElectionID:   "pod.dingofs.com",
-		NewCache: cache.BuilderWithOptions(cache.Options{
-			Scheme: scheme,
-			SelectorsByObject: cache.SelectorsByObject{
-				&corev1.Pod{}: {
-					Label: labels.SelectorFromSet(labels.Set{config.PodTypeKey: config.PodTypeValue}),
-				},
-			},
-		}),
+		Scheme:           scheme,
+		LeaderElectionID: "pod.dingofs.com",
+		NewCache: func(restConf *rest.Config, opts cache.Options) (cache.Cache, error) {
+			opts.Scheme = scheme
+			opts.DefaultLabelSelector = labels.SelectorFromSet(map[string]string{
+				config.PodTypeKey: config.PodTypeValue,
+			})
+			return cache.New(conf, opts)
+		},
 	})
 	if err != nil {
 		log.Error(err, "New pod controller error")

@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -58,25 +59,21 @@ func NewMountManager(
 	if err != nil {
 		return nil, err
 	}
+	// clientConfig := &
 	mgr, err := ctrl.NewManager(conf, ctrl.Options{
 		Scheme:                  scheme,
-		Port:                    9443,
-		MetricsBindAddress:      "0.0.0.0:8083",
 		LeaderElection:          leaderElection,
 		LeaderElectionNamespace: leaderElectionNamespace,
 		LeaderElectionID:        "mount.dingofs.com",
 		LeaseDuration:           &leaderElectionLeaseDuration,
-		NewCache: cache.BuilderWithOptions(cache.Options{
-			Scheme: scheme,
-			SelectorsByObject: cache.SelectorsByObject{
-				&corev1.Pod{}: {
-					Label: labels.SelectorFromSet(labels.Set{config.PodTypeKey: config.PodTypeValue}),
-				},
-				&batchv1.Job{}: {
-					Label: labels.SelectorFromSet(labels.Set{config.PodTypeKey: config.JobTypeValue}),
-				},
-			},
-		}),
+		NewCache: func(restConf *rest.Config, opts cache.Options) (cache.Cache, error) {
+			opts.Scheme = scheme
+			opts.DefaultLabelSelector = labels.SelectorFromSet(map[string]string{
+				config.PodTypeKey: config.PodTypeValue,
+				config.JobTypeKey: config.JobTypeValue,
+			})
+			return cache.New(conf, opts)
+		},
 	})
 	if err != nil {
 		log.Error(err, "New mount controller error")

@@ -170,7 +170,7 @@ const (
 /*
 when target is not subPath: /var/lib/kubelet/pods/<pod-id>/volumes/kubernetes.io~csi/<pv-volumeHandle>/mount
 
-	item in mountinfo: 3952 3905 0:864 / /var/lib/kubelet/pods/<pod-id>/volumes/kubernetes.io~csi/<pv-volumeHandle>/mount rw,nosuid,nodev,relatime shared:449 - fuse.dingofs JuiceFS:xxx rw
+	item in mountinfo: 3952 3905 0:864 / /var/lib/kubelet/pods/<pod-id>/volumes/kubernetes.io~csi/<pv-volumeHandle>/mount rw,nosuid,nodev,relatime shared:449 - fuse.dingofs DingoFS:xxx rw
 	targetItem: {
 		target: /var/lib/kubelet/pods/<pod-id>/volumes/kubernetes.io~csi/<pv-volumeHandle>/mount
 		subpath: /
@@ -182,7 +182,7 @@ when target is not subPath: /var/lib/kubelet/pods/<pod-id>/volumes/kubernetes.io
 
 when target is subPath: /var/lib/kubelet/pods/<pod-id>/volume-subpaths/<pv-volumeHandle>/tools/0
 
-	item in mountinfo: 3955 3905 0:864 /abc /var/lib/kubelet/pods/<pod-id>/volume-subpaths/<pv-volumeHandle>/tools/0 rw,relatime shared:449 - fuse.dingofs JuiceFS:test-fluid-2 rw,user_id=0,group_id=0,default_permissions,allow_other
+	item in mountinfo: 3955 3905 0:864 /abc /var/lib/kubelet/pods/<pod-id>/volume-subpaths/<pv-volumeHandle>/tools/0 rw,relatime shared:449 - fuse.dingofs DingoFS:test-fluid-2 rw,user_id=0,group_id=0,default_permissions,allow_other
 	targetItem: {
 		target: /var/lib/kubelet/pods/<pod-id>/volume-subpaths/<pv-volumeHandle>/tools/0
 		subpath: abc

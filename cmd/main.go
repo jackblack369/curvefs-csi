@@ -1,60 +1,116 @@
 /*
- *
- * Copyright 2022 The Curve Authors
+ * Copyright (c) 2024 dingodb.com, Inc. All Rights Reserved
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * 	http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * /
  */
 
 package main
 
 import (
-	"flag"
+	goflag "flag"
 	"fmt"
-	curvefsdriver "github.com/jackblack369/dingofs-csi/pkg/curvefs-driver"
-	"github.com/jackblack369/dingofs-csi/pkg/util"
-	"k8s.io/klog/v2"
+	_ "net/http/pprof"
 	"os"
+	"strings"
+	"time"
+
+	"github.com/jackblack369/dingofs-csi/pkg/util"
+	"github.com/spf13/cobra"
+	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var (
-	endpoint = flag.String("endpoint", "unix://tmp/csi.sock", "CSI Endpoint")
-	version  = flag.Bool("version", false, "Print the version info")
-	nodeID   = flag.String("nodeid", "", "NodeID")
+	endpoint    string
+	version     bool
+	nodeID      string
+	formatInPod bool
+	process     bool
+	configPath  string
+
+	provisioner       bool
+	cacheConf         bool
+	webhook           bool
+	certDir           string
+	webhookPort       int
+	validationWebhook bool
+
+	podManager         bool
+	reconcilerInterval int
+
+	leaderElection              bool
+	leaderElectionNamespace     string
+	leaderElectionLeaseDuration time.Duration
+
+	log = klog.NewKlogr().WithName("main")
 )
 
-func init() {
-	klog.InitFlags(nil)
-	flag.Parse()
+func main() {
+	var cmd = &cobra.Command{
+		Use:   "dingofs-csi",
+		Short: "dingofs csi driver",
+		Run: func(cmd *cobra.Command, args []string) {
+			if version {
+				info, err := util.GetVersionJSON()
+				if err != nil {
+					log.Error(err, "fail to get version info")
+					os.Exit(1)
+				}
+				fmt.Println(info)
+				os.Exit(0)
+			}
+
+			run()
+		},
+	}
+	cmd.PersistentFlags().StringVar(&endpoint, "endpoint", "unix://tmp/csi.sock", "CSI endpoint")
+	cmd.PersistentFlags().BoolVar(&version, "version", false, "Print the version and exit.")
+	cmd.PersistentFlags().StringVar(&nodeID, "nodeid", "", "Node ID")
+	cmd.PersistentFlags().BoolVar(&formatInPod, "format-in-pod", false, "Put format/auth in pod")
+	cmd.PersistentFlags().BoolVar(&process, "by-process", false, "CSI Driver run dingofs in process or not. default false.")
+	cmd.PersistentFlags().StringVar(&configPath, "config", "", "Paths to a csi config file. default empty")
+
+	cmd.PersistentFlags().BoolVar(&leaderElection, "leader-election", false, "Enables leader election. If leader election is enabled, additional RBAC rules are required. ")
+	cmd.PersistentFlags().StringVar(&leaderElectionNamespace, "leader-election-namespace", "", "Namespace where the leader election resource lives. Defaults to the pod namespace if not set.")
+	cmd.PersistentFlags().DurationVar(&leaderElectionLeaseDuration, "leader-election-lease-duration", 15*time.Second, "Duration, in seconds, that non-leader candidates will wait to force acquire leadership. Defaults to 15 seconds.")
+
+	// controller flags
+	cmd.Flags().BoolVar(&provisioner, "provisioner", false, "Enable provisioner in controller. default false.")
+	cmd.Flags().BoolVar(&cacheConf, "cache-client-conf", false, "Cache client config file. default false.")
+
+	// node flags
+	cmd.Flags().BoolVar(&podManager, "enable-manager", false, "Enable pod manager in csi node. default false.")
+	cmd.Flags().IntVar(&reconcilerInterval, "reconciler-interval", 5, "interval (default 5s) for reconciler")
+
+	goFlag := goflag.CommandLine
+	klog.InitFlags(goFlag)
+	cmd.PersistentFlags().AddGoFlagSet(goFlag)
+
+	if err := cmd.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
 
-func main() {
-	if *version {
-		info, err := util.GetVersionJSON()
-		if err != nil {
-			klog.Fatalln(err)
-		}
-		fmt.Println(info)
-		os.Exit(0)
-	}
+func run() {
 
-	if *nodeID == "" {
-		klog.Fatalln("nodeID must be provided")
+	ctx := ctrl.SetupSignalHandler()
+	podName := os.Getenv("POD_NAME")
+	if strings.Contains(podName, "csi-controller") {
+		log.Info("Run CSI controller")
+		controllerRun(ctx)
 	}
-
-	driver, err := curvefsdriver.NewDriver(*endpoint, *nodeID)
-	if err != nil {
-		klog.Fatalln(err)
+	if strings.Contains(podName, "csi-node") {
+		log.Info("Run CSI node")
+		nodeRun(ctx)
 	}
-	driver.Run()
 }

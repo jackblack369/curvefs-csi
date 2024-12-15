@@ -52,7 +52,7 @@ func newControllerService(k8sClient *k8sclient.K8sClient) (controllerService, er
 	}, nil
 }
 
-// CreateVolume create directory in an existing JuiceFS filesystem
+// CreateVolume create directory in an existing DingoFS filesystem
 func (d *controllerService) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	log := klog.NewKlogr().WithName("CreateVolume")
 	// DEBUG only, secrets exposed in args
