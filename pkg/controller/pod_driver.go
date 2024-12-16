@@ -96,7 +96,7 @@ func (p *PodDriver) Run(ctx context.Context, current *corev1.Pod) (Result, error
 	if current == nil {
 		return Result{}, nil
 	}
-	log := klog.NewKlogr().WithName("pod-driver").WithValues("podName", current.Name)
+	log := klog.NewKlogr().WithName("pod-driver").WithValues("mountpod name", current.Name)
 	ctx = util.WithLog(ctx, log)
 	ps := getPodStatus(current)
 	log.V(1).Info("start handle pod", "namespace", current.Namespace, "status", ps)
@@ -309,7 +309,7 @@ func (p *PodDriver) podDeletedHandler(ctx context.Context, pod *corev1.Pod) (Res
 		return Result{}, nil
 	}
 	log := util.GenLog(ctx, podDriverLog, "podDeletedHandler")
-	log.Info("Pod is to be deleted.")
+	klog.Infoln("APP Pod is to be deleted.")
 
 	// pod with no finalizer
 	if !util.ContainsString(pod.GetFinalizers(), config.Finalizer) {

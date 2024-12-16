@@ -56,7 +56,7 @@ func newControllerService(k8sClient *k8sclient.K8sClient) (controllerService, er
 func (d *controllerService) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	log := klog.NewKlogr().WithName("CreateVolume")
 	// DEBUG only, secrets exposed in args
-	klog.Infof("CreateVolume: called with args: %#v", req)
+	// klog.Infof("CreateVolume: called with args: %#v", req)
 
 	if len(req.Name) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume Name cannot be empty")
@@ -97,7 +97,7 @@ func (d *controllerService) CreateVolume(ctx context.Context, req *csi.CreateVol
 		}
 	}
 	// create volume
-	//err := d.dingofs.JfsCreateVol(ctx, volumeId, subPath, secrets, volCtx)
+	//err := d.dingofs.DfsCreateVol(ctx, volumeId, subPath, secrets, volCtx)
 	//if err != nil {
 	//	return nil, status.Errorf(codes.Internal, "Could not createVol in dingofs: %v", err)
 	//}
@@ -118,6 +118,7 @@ func (d *controllerService) CreateVolume(ctx context.Context, req *csi.CreateVol
 		CapacityBytes: requiredCap,
 		VolumeContext: volCtx,
 	}
+	klog.Infof("Creating volume success: %#v", volume)
 	return &csi.CreateVolumeResponse{Volume: &volume}, nil
 }
 

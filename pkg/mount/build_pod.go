@@ -44,7 +44,7 @@ func NewMountPod(podName string, dfsSetting *config.DfsSetting) (*corev1.Pod, er
 	}
 	pod.Spec.Containers[0].Command = []string{"sh", "-c", cmd}
 	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-		Name:  "JFS_FOREGROUND",
+		Name:  "DFS_FOREGROUND",
 		Value: "1",
 	})
 
@@ -404,9 +404,9 @@ func genCacheDirVolumes(dfsSetting *config.DfsSetting) ([]corev1.Volume, []corev
 }
 
 // genPodVolumes: generate volumes for mount pod
-// 1. jfs dir: mount point used to propagate the mount point in the mount container to host
+// 1. dfs dir: mount point used to propagate the mount point in the mount container to host
 // 2. update db dir: mount updatedb.conf from host to mount pod
-// 3. jfs fuse fd path: mount fuse fd pass socket to mount pod
+// 3. dfs fuse fd path: mount fuse fd pass socket to mount pod
 func genPodVolumes(dfsSetting *config.DfsSetting) ([]corev1.Volume, []corev1.VolumeMount) {
 	dir := corev1.HostPathDirectoryOrCreate
 	file := corev1.HostPathFileOrCreate

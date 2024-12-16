@@ -24,8 +24,8 @@ func parseNodeConfig() {
 		config.DriverName = os.Getenv("DRIVER_NAME")
 	}
 
-	if jfsImmutable := os.Getenv("DINGOFS_IMMUTABLE"); jfsImmutable != "" {
-		if immutable, err := strconv.ParseBool(jfsImmutable); err == nil {
+	if dfsImmutable := os.Getenv("DINGOFS_IMMUTABLE"); dfsImmutable != "" {
+		if immutable, err := strconv.ParseBool(dfsImmutable); err == nil {
 			config.Immutable = immutable
 		} else {
 			klog.Error(err, "cannot parse DINGOFS_IMMUTABLE")
@@ -38,8 +38,8 @@ func parseNodeConfig() {
 	config.DFSConfigPath = os.Getenv("DINGOFS_CONFIG_PATH")
 	config.HostIp = os.Getenv("HOST_IP")
 	config.KubeletPort = os.Getenv("KUBELET_PORT")
-	jfsMountPriorityName := os.Getenv("DINGOFS_MOUNT_PRIORITY_NAME")
-	jfsMountPreemptionPolicy := os.Getenv("DINGOFS_MOUNT_PREEMPTION_POLICY")
+	dfsMountPriorityName := os.Getenv("DINGOFS_MOUNT_PRIORITY_NAME")
+	dfsMountPreemptionPolicy := os.Getenv("DINGOFS_MOUNT_PREEMPTION_POLICY")
 	if timeout := os.Getenv("DINGOFS_RECONCILE_TIMEOUT"); timeout != "" {
 		duration, _ := time.ParseDuration(timeout)
 		if duration > config.ReconcileTimeout {
@@ -53,15 +53,15 @@ func parseNodeConfig() {
 		}
 	}
 
-	if jfsMountPriorityName != "" {
-		config.DFSMountPriorityName = jfsMountPriorityName
+	if dfsMountPriorityName != "" {
+		config.DFSMountPriorityName = dfsMountPriorityName
 	}
 
-	if jfsMountPreemptionPolicy != "" {
-		config.DFSMountPreemptionPolicy = jfsMountPreemptionPolicy
+	if dfsMountPreemptionPolicy != "" {
+		config.DFSMountPreemptionPolicy = dfsMountPreemptionPolicy
 	}
 
-	if mountPodImage := os.Getenv("DINGOFS_CE_MOUNT_IMAGE"); mountPodImage != "" {
+	if mountPodImage := os.Getenv("DINGOFS_MOUNT_IMAGE"); mountPodImage != "" {
 		config.DefaultMountImage = mountPodImage
 	}
 

@@ -275,7 +275,7 @@ var interVolumesPrefix = []string{
 	"rsa-key",
 	"init-config",
 	"config-",
-	"jfs-dir",
+	"dfs-dir",
 	"update-db",
 	"cachedir-",
 }
@@ -494,7 +494,7 @@ func ApplyConfigPatch(setting *DfsSetting) {
 	}
 }
 
-// GenMountPodPatch generate mount pod patch from jfsSettting
+// GenMountPodPatch generate mount pod patch from dfsSettting
 // 1. match pv selector
 // 2. parse template value
 // 3. return the merged mount pod patch

@@ -54,18 +54,18 @@ func (r *PodBuilder) NewMountPod(podName string) (*corev1.Pod, error) {
 	}
 	pod.Spec.Containers[0].Command = []string{"sh", "-c", cmd}
 	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-		Name:  "JFS_FOREGROUND",
+		Name:  "DFS_FOREGROUND",
 		Value: "1",
 	})
 
 	// inject fuse fd
 	// if podName != "" && util.SupportFusePass(pod.Spec.Containers[0].Image) {
-	// 	fdAddress, err := fuse.GlobalFds.GetFdAddress(context.TODO(), r.jfsSetting.HashVal)
+	// 	fdAddress, err := fuse.GlobalFds.GetFdAddress(context.TODO(), r.dfsSetting.HashVal)
 	// 	if err != nil {
 	// 		return nil, err
 	// 	}
 	// 	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-	// 		Name:  JfsCommEnv,
+	// 		Name:  DfsCommEnv,
 	// 		Value: fdAddress,
 	// 	})
 	// }
@@ -242,7 +242,7 @@ func (r *PodBuilder) genPodVolumes() ([]corev1.Volume, []corev1.VolumeMount) {
 	mp := corev1.MountPropagationBidirectional
 	volumes := []corev1.Volume{
 		{
-			Name: JfsDirName,
+			Name: DfsDirName,
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
 					Path: config.MountPointPath,
@@ -251,10 +251,10 @@ func (r *PodBuilder) genPodVolumes() ([]corev1.Volume, []corev1.VolumeMount) {
 			},
 		},
 		{
-			Name: JfsFuseFdPathName,
+			Name: DfsFuseFdPathName,
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: path.Join(JfsFuseFsPathInHost, r.dfsSetting.HashVal),
+					Path: path.Join(DfsFuseFsPathInHost, r.dfsSetting.HashVal),
 					Type: &dir,
 				},
 			},
@@ -262,13 +262,13 @@ func (r *PodBuilder) genPodVolumes() ([]corev1.Volume, []corev1.VolumeMount) {
 	}
 	volumeMounts := []corev1.VolumeMount{
 		{
-			Name:             JfsDirName,
+			Name:             DfsDirName,
 			MountPath:        config.PodMountBase,
 			MountPropagation: &mp,
 		},
 		{
-			Name:      JfsFuseFdPathName,
-			MountPath: JfsFuseFsPathInPod,
+			Name:      DfsFuseFdPathName,
+			MountPath: DfsFuseFsPathInPod,
 		},
 	}
 
@@ -330,7 +330,7 @@ func (r *PodBuilder) genCleanCachePod() *corev1.Pod {
 			Containers: []corev1.Container{{
 				Name:         "dfs-cache-clean",
 				Image:        r.dfsSetting.Attr.Image,
-				Command:      []string{"sh", "-c", "rm -rf /var/jfsCache/*/chunks"},
+				Command:      []string{"sh", "-c", "rm -rf /var/dfsCache/*/chunks"},
 				VolumeMounts: cacheVolumeMounts,
 			}},
 			Volumes: cacheVolumes,

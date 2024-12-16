@@ -83,7 +83,7 @@ func (d *dingofs) DfsMount(ctx context.Context, volumeID string, target string, 
 	if err := d.validTarget(target); err != nil {
 		return nil, err
 	}
-	// genJfsSettings get jfs settings and unique id, which will init dingofs fs by ceFormat
+	// genDfsSettings get dfs settings and unique id, which will init dingofs fs by ceFormat
 	dfsSetting, err := d.genDfsSettings(ctx, volumeID, target, secrets, volCtx, options)
 	if err != nil {
 		return nil, err
@@ -110,7 +110,7 @@ func (d *dingofs) DfsMount(ctx context.Context, volumeID string, target string, 
 func (d *dingofs) MountFs(ctx context.Context, appInfo *config.AppInfo, dfsSetting *config.DfsSetting) (string, error) {
 	var mnt podmount.MntInterface
 
-	dfsSetting.MountPath = filepath.Join(config.PodMountBase, dfsSetting.UniqueId) // e.g. /jfs/pvc-7175fc74-d52d-46bc-94b3-ad9296b726cd-alypal
+	dfsSetting.MountPath = filepath.Join(config.PodMountBase, dfsSetting.UniqueId) // e.g. /dfs/pvc-7175fc74-d52d-46bc-94b3-ad9296b726cd-alypal
 	mnt = d.podMount
 
 	err := mnt.DMount(ctx, appInfo, dfsSetting)
@@ -149,7 +149,7 @@ func (d *dingofs) validTarget(target string) error {
 	return nil
 }
 
-// genJfsSettings get jfs settings and unique id
+// genDfsSettings get dfs settings and unique id
 func (d *dingofs) genDfsSettings(ctx context.Context, volumeID string, target string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error) {
 	// get settings
 	dfsSetting, err := d.Settings(ctx, volumeID, secrets, volCtx, options)
@@ -165,7 +165,7 @@ func (d *dingofs) genDfsSettings(ctx context.Context, volumeID string, target st
 	}
 	klog.V(1).Info("Get uniqueId of volume", "volumeId", volumeID, "uniqueId", uniqueId)
 	dfsSetting.UniqueId = uniqueId
-	dfsSetting.SecretName = fmt.Sprintf("dingofs-%s-secret", dfsSetting.UniqueId)
+	dfsSetting.SecretName = fmt.Sprintf("dingofs-%s-secret", dfsSetting.UniqueId) // e.g. dingofs-pvc-7175fc74-d52d-46bc-94b3-ad9296b726cd-secret
 	if dfsSetting.CleanCache {
 		uuid := dfsSetting.Name
 		if uuid, err = d.GetDfsVolUUID(ctx, dfsSetting); err != nil {
@@ -276,19 +276,19 @@ func (d *dingofs) DfsDeleteVol(ctx context.Context, volumeID string, subPath str
 	volCtx = pv.Spec.CSI.VolumeAttributes
 	options = pv.Spec.MountOptions
 
-	jfsSetting, err := d.genDfsSettings(ctx, volumeID, "", secrets, volCtx, options)
+	dfsSetting, err := d.genDfsSettings(ctx, volumeID, "", secrets, volCtx, options)
 	if err != nil {
 		return err
 	}
-	jfsSetting.SubPath = subPath
-	jfsSetting.MountPath = filepath.Join(config.TmpPodMountBase, jfsSetting.VolumeId)
+	dfsSetting.SubPath = subPath
+	dfsSetting.MountPath = filepath.Join(config.TmpPodMountBase, dfsSetting.VolumeId)
 
 	mnt := d.podMount
 
-	if err := mnt.DeleteVolume(ctx, jfsSetting); err != nil {
+	if err := mnt.DeleteVolume(ctx, dfsSetting); err != nil {
 		return err
 	}
-	return d.DfsCleanupMountPoint(ctx, jfsSetting.MountPath)
+	return d.DfsCleanupMountPoint(ctx, dfsSetting.MountPath)
 }
 
 func (d *dingofs) GetSubPath(ctx context.Context, volumeID string) (string, error) {
@@ -517,7 +517,7 @@ func (d *dingofs) AuthFs(ctx context.Context, secrets map[string]string, setting
 			args = append(args, fmt.Sprintf("--%s=%s", k, security.EscapeBashStr(secrets[k])))
 		}
 	}
-	if v, ok := os.LookupEnv("JFS_NO_UPDATE_CONFIG"); ok && v == "enabled" {
+	if v, ok := os.LookupEnv("Dfs_NO_UPDATE_CONFIG"); ok && v == "enabled" {
 		cmdArgs = append(cmdArgs, "--no-update")
 		args = append(args, "--no-update")
 		if secrets["bucket"] == "" {
@@ -554,7 +554,7 @@ func (d *dingofs) AuthFs(ctx context.Context, secrets map[string]string, setting
 	for key, val := range setting.Envs {
 		envs = append(envs, fmt.Sprintf("%s=%s", security.EscapeBashStr(key), security.EscapeBashStr(val)))
 	}
-	envs = append(envs, "JFS_NO_CHECK_OBJECT_STORAGE=1")
+	envs = append(envs, "Dfs_NO_CHECK_OBJECT_STORAGE=1")
 	authCmd.SetEnv(envs)
 	res, err := authCmd.CombinedOutput()
 	klog.Info("auth output", "output", res)

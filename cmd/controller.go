@@ -49,9 +49,9 @@ func parseControllerConfig() {
 	// enable mount manager by default in csi controller
 	config.MountManager = true
 
-	if jfsImmutable := os.Getenv("DINGOFS_IMMUTABLE"); jfsImmutable != "" {
+	if dfsImmutable := os.Getenv("DINGOFS_IMMUTABLE"); dfsImmutable != "" {
 		// check if running in an immutable environment
-		if immutable, err := strconv.ParseBool(jfsImmutable); err == nil {
+		if immutable, err := strconv.ParseBool(dfsImmutable); err == nil {
 			config.Immutable = immutable
 		} else {
 			log.Error(err, "cannot parse DINGOFS_IMMUTABLE")

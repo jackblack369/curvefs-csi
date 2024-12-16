@@ -41,7 +41,7 @@ import (
 type MntInterface interface {
 	k8sMount.Interface
 	DMount(ctx context.Context, appInfo *config.AppInfo, dfsSetting *config.DfsSetting) error
-	// DCreateVolume(ctx context.Context, dfsSetting *jfsConfig.dfsSetting) error
+	// DCreateVolume(ctx context.Context, dfsSetting *dfsConfig.dfsSetting) error
 	DeleteVolume(ctx context.Context, dfsSetting *config.DfsSetting) error
 	GetMountRef(ctx context.Context, target, podName string) (int, error) // podName is only used by podMount
 	UmountTarget(ctx context.Context, target, podName string) error       // podName is only used by podMount
@@ -575,7 +575,7 @@ func (p *PodMount) GetMountRef(ctx context.Context, target, podName string) (int
 func (p *PodMount) CleanCache(ctx context.Context, image string, id string, volumeId string, cacheDirs []string) error {
 	dfsSetting, err := config.ParseSetting(map[string]string{"name": id}, nil, []string{}, nil, nil)
 	if err != nil {
-		klog.Error(err, "parse jfs setting err")
+		klog.Error(err, "parse dfs setting err")
 		return err
 	}
 	dfsSetting.Attr.Image = image

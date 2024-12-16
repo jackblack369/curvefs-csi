@@ -152,15 +152,15 @@ func (r *JobBuilder) newCleanJob(jobName string) *batchv1.Job {
 func (r *JobBuilder) getCreateVolumeCmd() string {
 	cmd := r.getJobCommand()
 	subpath := security.EscapeBashStr(r.dfsSetting.SubPath)
-	return fmt.Sprintf("%s && if [ ! -d /mnt/jfs/%s ]; then mkdir -m 777 /mnt/jfs/%s; fi;", cmd, subpath, subpath)
+	return fmt.Sprintf("%s && if [ ! -d /mnt/dfs/%s ]; then mkdir -m 777 /mnt/dfs/%s; fi;", cmd, subpath, subpath)
 }
 
 func (r *JobBuilder) getDeleteVolumeCmd() string {
 	cmd := r.getJobCommand()
-	jfsPath := config.CliPath
+	dfsPath := config.CliPath
 	subpath := security.EscapeBashStr(r.dfsSetting.SubPath)
 	// TODO modify the command to delete the volume
-	return fmt.Sprintf("%s && if [ -d /mnt/jfs/%s ]; then %s rmr /mnt/jfs/%s; fi;", cmd, subpath, jfsPath, subpath)
+	return fmt.Sprintf("%s && if [ -d /mnt/dfs/%s ]; then %s rmr /mnt/dfs/%s; fi;", cmd, subpath, dfsPath, subpath)
 }
 
 func NewFuseAbortJob(mountpod *corev1.Pod, devMinor uint32) *batchv1.Job {

@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	DriverName               = "csi.dingofs.com"
+	DriverName               = "csi.dingofs.v2"
 	NodeName                 = ""
 	Namespace                = ""
 	PodName                  = ""
@@ -28,7 +28,8 @@ var (
 	DFSMountPriorityName     = "system-node-critical"
 	DFSMountPreemptionPolicy = ""
 
-	DefaultMountImage = "dingodatabase/dingofs-csi:latest" // mount pod image, override by ENV
+	// DefaultMountImage = "dingodatabase/dingofs-csi:latest" // mount pod image, override by ENV
+	DefaultMountImage = "harbor.zetyun.cn/dingofs/dingofs-csi:v2.1-alpha" // TODO upgrade image version
 	MountPointPath    = "/var/lib/dingofs/volume"
 )
 

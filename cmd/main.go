@@ -17,7 +17,7 @@
 package main
 
 import (
-	goflag "flag"
+	"flag"
 	"fmt"
 	_ "net/http/pprof"
 	"os"
@@ -35,16 +35,9 @@ var (
 	version     bool
 	nodeID      string
 	formatInPod bool
-	process     bool
-	configPath  string
 
-	provisioner       bool
-	cacheConf         bool
-	webhook           bool
-	certDir           string
-	webhookPort       int
-	validationWebhook bool
-
+	provisioner        bool
+	cacheConf          bool
 	podManager         bool
 	reconcilerInterval int
 
@@ -56,6 +49,7 @@ var (
 )
 
 func main() {
+
 	var cmd = &cobra.Command{
 		Use:   "dingofs-csi",
 		Short: "dingofs csi driver",
@@ -73,12 +67,11 @@ func main() {
 			run()
 		},
 	}
+
 	cmd.PersistentFlags().StringVar(&endpoint, "endpoint", "unix://tmp/csi.sock", "CSI endpoint")
 	cmd.PersistentFlags().BoolVar(&version, "version", false, "Print the version and exit.")
 	cmd.PersistentFlags().StringVar(&nodeID, "nodeid", "", "Node ID")
 	cmd.PersistentFlags().BoolVar(&formatInPod, "format-in-pod", false, "Put format/auth in pod")
-	cmd.PersistentFlags().BoolVar(&process, "by-process", false, "CSI Driver run dingofs in process or not. default false.")
-	cmd.PersistentFlags().StringVar(&configPath, "config", "", "Paths to a csi config file. default empty")
 
 	cmd.PersistentFlags().BoolVar(&leaderElection, "leader-election", false, "Enables leader election. If leader election is enabled, additional RBAC rules are required. ")
 	cmd.PersistentFlags().StringVar(&leaderElectionNamespace, "leader-election-namespace", "", "Namespace where the leader election resource lives. Defaults to the pod namespace if not set.")
@@ -92,7 +85,7 @@ func main() {
 	cmd.Flags().BoolVar(&podManager, "enable-manager", false, "Enable pod manager in csi node. default false.")
 	cmd.Flags().IntVar(&reconcilerInterval, "reconciler-interval", 5, "interval (default 5s) for reconciler")
 
-	goFlag := goflag.CommandLine
+	goFlag := flag.CommandLine
 	klog.InitFlags(goFlag)
 	cmd.PersistentFlags().AddGoFlagSet(goFlag)
 

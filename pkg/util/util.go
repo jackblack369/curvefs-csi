@@ -115,7 +115,7 @@ func GenHashOfSetting(setting config.DfsSetting) string {
 	h := sha256.New()
 	h.Write(settingStr)
 	val := hex.EncodeToString(h.Sum(nil))[:63]
-	klog.Infof("get jfsSetting hash, hashVal:%s", val)
+	klog.Infof("get dfsSetting hash, hashVal:%s", val)
 	return val
 }
 

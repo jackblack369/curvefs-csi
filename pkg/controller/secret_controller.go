@@ -114,12 +114,12 @@ func (m *SecretController) Reconcile(ctx context.Context, request reconcile.Requ
 		secretCtrlLog.V(1).Info("name not found in secret", "name", request.Name)
 		return reconcile.Result{}, nil
 	}
-	jfs := dingofsdriver.NewDfsProvider(nil, nil)
+	dfs := dingofsdriver.NewDfsProvider(nil, nil)
 	secretsMap := make(map[string]string)
 	for k, v := range secrets.Data {
 		secretsMap[k] = string(v[:])
 	}
-	dfsSetting, err := jfs.Settings(ctx, "", secretsMap, nil, nil)
+	dfsSetting, err := dfs.Settings(ctx, "", secretsMap, nil, nil)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -129,7 +129,7 @@ func (m *SecretController) Reconcile(ctx context.Context, request reconcile.Requ
 	}
 	defer os.RemoveAll(tempConfDir)
 	dfsSetting.ClientConfPath = tempConfDir
-	output, err := jfs.AuthFs(ctx, secretsMap, dfsSetting, true)
+	output, err := dfs.AuthFs(ctx, secretsMap, dfsSetting, true)
 	if err != nil {
 		secretCtrlLog.Error(err, "auth failed", "output", output)
 		return reconcile.Result{}, err

@@ -130,7 +130,7 @@ func (d *nodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	mountOptions = append(mountOptions, options...)
 
 	// mound pod to mounting dingofs. e.g
-	// /usr/local/bin/dingofs redis://:xxx /jfs/pvc-7175fc74-d52d-46bc-94b3-ad9296b726cd-alypal -o metrics=0.0.0.0:9567
+	// /usr/local/bin/dingofs redis://:xxx /dfs/pvc-7175fc74-d52d-46bc-94b3-ad9296b726cd-alypal -o metrics=0.0.0.0:9567
 	// /curvefs/client/sbin/dingo-fuse \
 	// -f \
 	// -o default_permissions \
@@ -141,17 +141,17 @@ func (d *nodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	// -o conf=/curvefs/client/conf/client.conf \
 	// /curvefs/client/mnt/mnt/mp-1
 	log.Info("mounting dingofs", "secret", reflect.ValueOf(secrets).MapKeys(), "options", mountOptions)
-	jfs, err := d.provider.DfsMount(ctx, volumeID, target, secrets, volCtx, mountOptions)
+	dfs, err := d.provider.DfsMount(ctx, volumeID, target, secrets, volCtx, mountOptions)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not mount dingofs: %v", err)
 	}
 
-	bindSource, err := jfs.CreateVol(ctx, volumeID, volCtx["subPath"])
+	bindSource, err := dfs.CreateVol(ctx, volumeID, volCtx["subPath"])
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not create volume: %s, %v", volumeID, err)
 	}
 
-	if err := jfs.BindTarget(ctx, bindSource, target); err != nil {
+	if err := dfs.BindTarget(ctx, bindSource, target); err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not bind %q at %q: %v", bindSource, target, err)
 	}
 
@@ -160,7 +160,7 @@ func (d *nodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "invalid capacity %s: %v", cap, err)
 		}
-		settings := jfs.GetSetting()
+		settings := dfs.GetSetting()
 		if settings.PV != nil {
 			capacity = settings.PV.Spec.Capacity.Storage().Value()
 		}

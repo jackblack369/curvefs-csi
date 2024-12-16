@@ -35,13 +35,13 @@ import (
 )
 
 const (
-	JfsDirName          = "jfs-dir"
+	DfsDirName          = "dfs-dir"
 	UpdateDBDirName     = "updatedb"
 	UpdateDBCfgFile     = "/etc/updatedb.conf"
-	JfsFuseFdPathName   = "jfs-fuse-fd"
-	JfsFuseFsPathInPod  = "/tmp"
-	JfsFuseFsPathInHost = "/var/run/dingofs-csi"
-	JfsCommEnv          = "JFS_SUPER_COMM"
+	DfsFuseFdPathName   = "dfs-fuse-fd"
+	DfsFuseFsPathInPod  = "/tmp"
+	DfsFuseFsPathInHost = "/var/run/dingofs-csi"
+	DfsCommEnv          = "Dfs_SUPER_COMM"
 )
 
 type BaseBuilder struct {
@@ -220,7 +220,7 @@ func (r *BaseBuilder) overwriteSubdirWithSubPath() {
 func (r *BaseBuilder) getJobCommand() string {
 	var cmd string
 	options := util.StripReadonlyOption(r.dfsSetting.Options)
-	args := []string{config.CliPath, "${metaurl}", "/mnt/jfs"}
+	args := []string{config.CliPath, "${metaurl}", "/mnt/dfs"}
 	if len(options) != 0 {
 		args = append(args, "-o", security.EscapeBashStr(strings.Join(options, ",")))
 	}
