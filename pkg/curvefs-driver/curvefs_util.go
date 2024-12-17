@@ -43,8 +43,8 @@ const (
 )
 
 type curvefsTool struct {
-	toolParams  map[string]string
-	quotaParams map[string]string
+	ToolParams  map[string]string
+	QuotaParams map[string]string
 }
 
 type FsInfo struct {
@@ -56,7 +56,7 @@ type FsInfo struct {
 var fss = map[string]string{}
 
 func NewCurvefsTool() *curvefsTool {
-	return &curvefsTool{toolParams: map[string]string{}, quotaParams: map[string]string{}}
+	return &curvefsTool{ToolParams: map[string]string{}, QuotaParams: map[string]string{}}
 }
 
 func (ct *curvefsTool) CreateFs(
@@ -69,13 +69,13 @@ func (ct *curvefsTool) CreateFs(
 	//	return nil
 	//}
 
-	err := ct.validateCommonParamsV2(secrets)
+	err := ct.ValidateCommonParamsV2(secrets)
 	if err != nil {
 		return err
 	}
 
 	// check fs exist or not
-	fsExisted, err := ct.CheckFsExisted(fsName, ct.toolParams["mdsaddr"])
+	fsExisted, err := ct.CheckFsExisted(fsName, ct.ToolParams["mdsaddr"])
 	if err != nil {
 		return err
 	}
@@ -84,14 +84,14 @@ func (ct *curvefsTool) CreateFs(
 		return nil
 	}
 
-	err = ct.validateCreateFsParamsV2(secrets)
+	err = ct.ValidateCreateFsParamsV2(secrets)
 	if err != nil {
 		return err
 	}
-	ct.toolParams["fsname"] = fsName
+	ct.ToolParams["fsname"] = fsName
 	// call curvefs create fs to create a fs
 	createFsArgs := []string{"create", "fs"}
-	for k, v := range ct.toolParams {
+	for k, v := range ct.ToolParams {
 		arg := fmt.Sprintf("--%s=%s", k, v)
 		createFsArgs = append(createFsArgs, arg)
 	}
@@ -110,9 +110,9 @@ func (ct *curvefsTool) CreateFs(
 		)
 	}
 
-	configQuotaArgs := []string{"config", "fs", "--fsname=" + fsName, "--mdsaddr=" + ct.toolParams["mdsaddr"]}
-	if len(ct.quotaParams) != 0 {
-		for k, v := range ct.quotaParams {
+	configQuotaArgs := []string{"config", "fs", "--fsname=" + fsName, "--mdsaddr=" + ct.ToolParams["mdsaddr"]}
+	if len(ct.QuotaParams) != 0 {
+		for k, v := range ct.QuotaParams {
 			arg := fmt.Sprintf("--%s=%s", k, v)
 			configQuotaArgs = append(configQuotaArgs, arg)
 		}
@@ -132,7 +132,7 @@ func (ct *curvefsTool) CreateFs(
 	}
 
 	//fss[fsName] = fsName
-	klog.Infof("create fs success, fsName: %s, quota: %v", fsName, ct.quotaParams)
+	klog.Infof("create fs success, fsName: %s, quota: %v", fsName, ct.QuotaParams)
 
 	return nil
 }
@@ -142,11 +142,11 @@ func (ct *curvefsTool) DeleteFs(volumeID string, params map[string]string) error
 	if err != nil {
 		return err
 	}
-	ct.toolParams["fsname"] = volumeID // todo change to fsName
-	ct.toolParams["noconfirm"] = "1"
+	ct.ToolParams["fsname"] = volumeID // todo change to fsName
+	ct.ToolParams["noconfirm"] = "1"
 	// call curvefs_tool delete-fs to create a fs
 	deleteFsArgs := []string{"delete-fs"}
-	for k, v := range ct.toolParams {
+	for k, v := range ct.ToolParams {
 		arg := fmt.Sprintf("-%s=%s", k, v)
 		deleteFsArgs = append(deleteFsArgs, arg)
 	}
@@ -233,21 +233,21 @@ func (ct *curvefsTool) SetVolumeQuota(mdsaddr string, path string, fsname string
 
 func (ct *curvefsTool) validateCommonParams(params map[string]string) error {
 	if mdsAddr, ok := params["mdsAddr"]; ok {
-		ct.toolParams["mdsAddr"] = mdsAddr
+		ct.ToolParams["mdsAddr"] = mdsAddr
 	} else {
 		return status.Error(codes.InvalidArgument, "mdsAddr is missing")
 	}
 	if confPath, ok := params["toolConfPath"]; ok {
-		ct.toolParams["confPath"] = confPath
+		ct.ToolParams["confPath"] = confPath
 	} else {
-		ct.toolParams["confPath"] = defaultToolExampleConfPath
+		ct.ToolParams["confPath"] = defaultToolExampleConfPath
 	}
 	return nil
 }
 
-func (ct *curvefsTool) validateCommonParamsV2(params map[string]string) error {
+func (ct *curvefsTool) ValidateCommonParamsV2(params map[string]string) error {
 	if mdsAddr, ok := params["mdsAddr"]; ok {
-		ct.toolParams["mdsaddr"] = mdsAddr
+		ct.ToolParams["mdsaddr"] = mdsAddr
 	} else {
 		return status.Error(codes.InvalidArgument, "mdsAddr is missing")
 	}
@@ -256,12 +256,12 @@ func (ct *curvefsTool) validateCommonParamsV2(params map[string]string) error {
 
 func (ct *curvefsTool) validateCreateFsParams(params map[string]string) error {
 	if fsType, ok := params["fsType"]; ok {
-		ct.toolParams["fsType"] = fsType
+		ct.ToolParams["fsType"] = fsType
 		enableSumInDir, ok := params["enableSumInDir"]
 		if ok {
-			ct.toolParams["enableSumInDir"] = enableSumInDir
+			ct.ToolParams["enableSumInDir"] = enableSumInDir
 		} else {
-			ct.toolParams["enableSumInDir"] = "0"
+			ct.ToolParams["enableSumInDir"] = "0"
 		}
 		if fsType == "s3" {
 			s3Endpoint, ok1 := params["s3Endpoint"]
@@ -269,16 +269,16 @@ func (ct *curvefsTool) validateCreateFsParams(params map[string]string) error {
 			s3SecretKey, ok3 := params["s3SecretKey"]
 			s3Bucket, ok4 := params["s3Bucket"]
 			if ok1 && ok2 && ok3 && ok4 {
-				ct.toolParams["s3_endpoint"] = s3Endpoint
-				ct.toolParams["s3_ak"] = s3AccessKey
-				ct.toolParams["s3_sk"] = s3SecretKey
-				ct.toolParams["s3_bucket_name"] = s3Bucket
+				ct.ToolParams["s3_endpoint"] = s3Endpoint
+				ct.ToolParams["s3_ak"] = s3AccessKey
+				ct.ToolParams["s3_sk"] = s3SecretKey
+				ct.ToolParams["s3_bucket_name"] = s3Bucket
 			} else {
 				return status.Error(codes.InvalidArgument, "s3Info is incomplete")
 			}
 		} else if fsType == "volume" {
 			if backendVolName, ok := params["backendVolName"]; ok {
-				ct.toolParams["volumeName"] = backendVolName
+				ct.ToolParams["volumeName"] = backendVolName
 			} else {
 				return status.Error(codes.InvalidArgument, "backendVolName is missing")
 			}
@@ -290,7 +290,7 @@ func (ct *curvefsTool) validateCreateFsParams(params map[string]string) error {
 				if backendVolSizeGBInt < 10 {
 					return status.Error(codes.InvalidArgument, "backendVolSize must larger than 10GB")
 				}
-				ct.toolParams["volumeSize"] = backendVolSizeGB
+				ct.ToolParams["volumeSize"] = backendVolSizeGB
 			} else {
 				return status.Error(codes.InvalidArgument, "backendVolSize is missing")
 			}
@@ -303,9 +303,9 @@ func (ct *curvefsTool) validateCreateFsParams(params map[string]string) error {
 	return nil
 }
 
-func (ct *curvefsTool) validateCreateFsParamsV2(params map[string]string) error {
+func (ct *curvefsTool) ValidateCreateFsParamsV2(params map[string]string) error {
 	if fsType, ok := params["fsType"]; ok {
-		ct.toolParams["fstype"] = fsType
+		ct.ToolParams["fstype"] = fsType
 
 		if fsType == "s3" {
 			s3Endpoint, ok1 := params["s3Endpoint"]
@@ -313,16 +313,16 @@ func (ct *curvefsTool) validateCreateFsParamsV2(params map[string]string) error 
 			s3SecretKey, ok3 := params["s3SecretKey"]
 			s3Bucket, ok4 := params["s3Bucket"]
 			if ok1 && ok2 && ok3 && ok4 {
-				ct.toolParams["s3.endpoint"] = s3Endpoint
-				ct.toolParams["s3.ak"] = s3AccessKey
-				ct.toolParams["s3.sk"] = s3SecretKey
-				ct.toolParams["s3.bucketname"] = s3Bucket
+				ct.ToolParams["s3.endpoint"] = s3Endpoint
+				ct.ToolParams["s3.ak"] = s3AccessKey
+				ct.ToolParams["s3.sk"] = s3SecretKey
+				ct.ToolParams["s3.bucketname"] = s3Bucket
 			} else {
 				return status.Error(codes.InvalidArgument, "s3Info is incomplete")
 			}
 		} else if fsType == "volume" {
 			if backendVolName, ok := params["backendVolName"]; ok {
-				ct.toolParams["volumeName"] = backendVolName
+				ct.ToolParams["volumeName"] = backendVolName
 			} else {
 				return status.Error(codes.InvalidArgument, "backendVolName is missing")
 			}
@@ -334,7 +334,7 @@ func (ct *curvefsTool) validateCreateFsParamsV2(params map[string]string) error 
 				if backendVolSizeGBInt < 10 {
 					return status.Error(codes.InvalidArgument, "backendVolSize must larger than 10GB")
 				}
-				ct.toolParams["volumeSize"] = backendVolSizeGB
+				ct.ToolParams["volumeSize"] = backendVolSizeGB
 			} else {
 				return status.Error(codes.InvalidArgument, "backendVolSize is missing")
 			}
@@ -346,11 +346,11 @@ func (ct *curvefsTool) validateCreateFsParamsV2(params map[string]string) error 
 	}
 
 	if quotaCapacity, ok := params["quotaCapacity"]; ok {
-		ct.quotaParams["capacity"] = quotaCapacity
+		ct.QuotaParams["capacity"] = quotaCapacity
 	}
 
 	if quotaInodes, ok := params["quotaInodes"]; ok {
-		ct.quotaParams["inodes"] = quotaInodes
+		ct.QuotaParams["inodes"] = quotaInodes
 	}
 
 	return nil

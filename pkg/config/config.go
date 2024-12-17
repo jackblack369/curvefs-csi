@@ -34,14 +34,14 @@ var (
 )
 
 const (
-	CSINodeLabelKey      = "app"
-	CSINodeLabelValue    = "dingofs-csi-node"
-	PodTypeKey           = "app.kubernetes.io/name"
-	PodTypeValue         = "dingofs-mount"
-	JobTypeKey           = "batch.kubernetes.io/name"
-	JobTypeValue         = "dingofs-job"
-	PodUniqueIdLabelKey  = "volume-id"
-	PodJuiceHashLabelKey = "dingofs-hash"
+	CSINodeLabelKey     = "app"
+	CSINodeLabelValue   = "dingofs-csi-node"
+	PodTypeKey          = "app.kubernetes.io/name"
+	PodTypeValue        = "dingofs-mount"
+	JobTypeKey          = "batch.kubernetes.io/name"
+	JobTypeValue        = "dingofs-job"
+	PodUniqueIdLabelKey = "volume-id"
+	PodHashLabelKey     = "dingofs-hash"
 
 	DingoFSID = "dingfs-fsid"
 	UniqueId  = "dingofs-uniqueid"

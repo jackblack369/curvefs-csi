@@ -28,7 +28,7 @@ func parseNodeConfig() {
 		if immutable, err := strconv.ParseBool(dfsImmutable); err == nil {
 			config.Immutable = immutable
 		} else {
-			klog.Error(err, "cannot parse DINGOFS_IMMUTABLE")
+			klog.ErrorS(err, "cannot parse DINGOFS_IMMUTABLE")
 		}
 	}
 	config.NodeName = os.Getenv("NODE_NAME")
@@ -72,18 +72,18 @@ func parseNodeConfig() {
 
 	k8sclient, err := k8s.NewClient()
 	if err != nil {
-		klog.Error(err, "Can't get k8s client")
+		klog.ErrorS(err, "Can't get k8s client")
 		os.Exit(1)
 	}
 	pod, err := k8sclient.GetPod(context.TODO(), config.PodName, config.Namespace)
 	if err != nil {
-		klog.Error(err, "Can't get pod", "pod", config.PodName)
+		klog.ErrorS(err, "Can't get pod", "pod", config.PodName)
 		os.Exit(1)
 	}
 	config.CSIPod = *pod
 	err = fuse.InitGlobalFds(context.TODO(), "/tmp")
 	if err != nil {
-		klog.Error(err, "Init global fds error")
+		klog.ErrorS(err, "Init global fds error")
 		os.Exit(1)
 	}
 }
@@ -100,7 +100,7 @@ func nodeRun(ctx context.Context) {
 		port := 6060
 		for {
 			if err := http.ListenAndServe(fmt.Sprintf("localhost:%d", port), nil); err != nil {
-				klog.Error(err, "failed to start pprof server")
+				klog.ErrorS(err, "failed to start pprof server")
 			}
 			port++
 		}
@@ -113,7 +113,7 @@ func nodeRun(ctx context.Context) {
 			if err := retry.OnError(retry.DefaultBackoff, func(err error) bool { return true }, func() error {
 				return controller.StartReconciler()
 			}); err != nil {
-				klog.Error(err, "Could not Start Reconciler of polling kubelet and fallback to watch ApiServer.")
+				klog.ErrorS(err, "Could not Start Reconciler of polling kubelet and fallback to watch ApiServer.")
 				needStartPodManager = true
 			}
 		} else {
@@ -124,12 +124,12 @@ func nodeRun(ctx context.Context) {
 			go func() {
 				mgr, err := app.NewPodManager()
 				if err != nil {
-					klog.Error(err, "fail to create pod manager")
+					klog.ErrorS(err, "fail to create pod manager")
 					os.Exit(1)
 				}
 
 				if err := mgr.Start(ctx); err != nil {
-					klog.Error(err, "fail to start pod manager")
+					klog.ErrorS(err, "fail to start pod manager")
 					os.Exit(1)
 				}
 			}()
@@ -139,7 +139,7 @@ func nodeRun(ctx context.Context) {
 
 	drv, err := dingofsdriver.NewDriver(endpoint, nodeID)
 	if err != nil {
-		klog.Error(err, "fail to create driver")
+		klog.ErrorS(err, "fail to create driver")
 		os.Exit(1)
 	}
 
@@ -149,7 +149,7 @@ func nodeRun(ctx context.Context) {
 	}()
 
 	if err := drv.Run(); err != nil {
-		klog.Error(err, "fail to run driver")
+		klog.ErrorS(err, "fail to run driver")
 		os.Exit(1)
 	}
 }

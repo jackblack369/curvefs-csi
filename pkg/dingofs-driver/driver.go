@@ -122,12 +122,12 @@ func parseNodeConfig() {
 
 	k8sclient, err := k8s.NewClient()
 	if err != nil {
-		klog.Error(err, "Can't get k8s client")
+		klog.ErrorS(err, "Can't get k8s client")
 		os.Exit(1)
 	}
 	pod, err := k8sclient.GetPod(context.TODO(), config.PodName, config.Namespace)
 	if err != nil {
-		klog.Error(err, "Can't get pod", "pod", config.PodName)
+		klog.ErrorS(err, "Can't get pod", "pod", config.PodName)
 		os.Exit(1)
 	}
 

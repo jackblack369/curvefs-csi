@@ -24,6 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 
 	"github.com/jackblack369/dingofs-csi/pkg/config"
 )
@@ -43,9 +44,10 @@ func NewPodBuilder(setting *config.DfsSetting, capacity int64) *PodBuilder {
 
 // NewMountPod generates a pod with dingofs client
 func (r *PodBuilder) NewMountPod(podName string) (*corev1.Pod, error) {
-	pod := r.genCommonJuicePod(r.genCommonContainer)
+	pod := r.genCommonPod(r.genCommonContainer)
 
 	pod.Name = podName
+	klog.V(6).Infof("mount pod[%s] spec info[%#v]", podName, pod.Spec)
 	mountCmd := r.genMountCommand()
 	cmd := mountCmd
 	initCmd := r.genInitCommand()

@@ -210,7 +210,7 @@ func UmountPath(ctx context.Context, sourcePath string) {
 		!strings.Contains(string(out), "not mounted") &&
 		!strings.Contains(string(out), "mountpoint not found") &&
 		!strings.Contains(string(out), "no mount point specified") {
-		klog.Error(err, "Could not lazy unmount", "path", sourcePath, "out", string(out))
+		klog.ErrorS(err, "Could not lazy unmount", "path", sourcePath, "out", string(out))
 	}
 }
 
@@ -249,7 +249,7 @@ func GetDiskUsage(path string) (uint64, uint64, uint64, uint64) {
 		freeFiles := stat.Ffree
 		return totalSize, freeSize, totalFiles, freeFiles
 	} else {
-		klog.Error(err, "GetDiskUsage: syscall.Statfs failed")
+		klog.ErrorS(err, "GetDiskUsage: syscall.Statfs failed")
 		return 1, 1, 1, 1
 	}
 }

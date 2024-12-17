@@ -143,7 +143,7 @@ func (ns *nodeServer) NodePublishVolume(
 		}
 		// convert byte to GB
 		capacityGB := util.ByteToGB(capacityBytes)
-		err = curvefsTool.SetVolumeQuota(curvefsTool.toolParams["mdsaddr"], volumeID, secrets["name"], strconv.FormatInt(capacityGB, 10), volumeContext["inodes"])
+		err = curvefsTool.SetVolumeQuota(curvefsTool.ToolParams["mdsaddr"], volumeID, secrets["name"], strconv.FormatInt(capacityGB, 10), volumeContext["inodes"])
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "Set volume quota failed: %v", err)
 		}

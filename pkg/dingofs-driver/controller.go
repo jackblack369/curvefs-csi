@@ -309,7 +309,7 @@ func (d *controllerService) ControllerExpandVolume(ctx context.Context, req *csi
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get quotaPath error: %v", err)
 	}
-	settings, err := d.provider.Settings(ctx, volumeID, req.GetSecrets(), nil, options)
+	settings, err := d.provider.InitFS(ctx, volumeID, req.GetSecrets(), nil, options)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get settings: %v", err)
 	}

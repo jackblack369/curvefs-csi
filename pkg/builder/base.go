@@ -77,11 +77,11 @@ func (r *BaseBuilder) genPodTemplate(baseCnGen func() corev1.Container) *corev1.
 	}
 }
 
-// genCommonJuicePod generates a pod with common settings
-func (r *BaseBuilder) genCommonJuicePod(cnGen func() corev1.Container) *corev1.Pod {
+// genCommonPod generates a pod with common settings
+func (r *BaseBuilder) genCommonPod(cnGen func() corev1.Container) *corev1.Pod {
 	// gen again to update the mount pod spec
 	if err := config.GenPodAttrWithCfg(r.dfsSetting, nil); err != nil {
-		klog.Error(err, "genCommonJuicePod gen pod attr failed, mount pod may not be the expected config")
+		klog.ErrorS(err, "genCommonPod gen pod attr failed, mount pod may not be the expected config")
 	}
 	pod := r.genPodTemplate(cnGen)
 	// labels & annotations
@@ -97,7 +97,7 @@ func (r *BaseBuilder) genCommonJuicePod(cnGen func() corev1.Container) *corev1.P
 	pod.Spec.TerminationGracePeriodSeconds = &gracePeriod
 	controllerutil.AddFinalizer(pod, config.Finalizer)
 
-	volumes, volumeMounts := r._genJuiceVolumes()
+	volumes, volumeMounts := r._genDfsVolumes()
 	pod.Spec.Volumes = volumes
 	pod.Spec.Containers[0].VolumeMounts = volumeMounts
 	pod.Spec.Containers[0].EnvFrom = []corev1.EnvFromSource{{
@@ -109,6 +109,7 @@ func (r *BaseBuilder) genCommonJuicePod(cnGen func() corev1.Container) *corev1.P
 	}}
 	pod.Spec.Containers[0].Env = r.dfsSetting.Attr.Env
 	pod.Spec.Containers[0].Resources = r.dfsSetting.Attr.Resources
+	// TODO erase
 	// if image support passFd from csi, do not set umount preStop
 	// if r.dfsSetting.Attr.Lifecycle == nil {
 	// 	if !util.SupportFusePass(pod.Spec.Containers[0].Image) || config.Webhook {
@@ -130,6 +131,7 @@ func (r *BaseBuilder) genCommonJuicePod(cnGen func() corev1.Container) *corev1.P
 	pod.Spec.Containers[0].LivenessProbe = r.dfsSetting.Attr.LivenessProbe
 	pod.Spec.Containers[0].ReadinessProbe = r.dfsSetting.Attr.ReadinessProbe
 
+	// TODO erase
 	// if r.dfsSetting.Attr.HostNetwork || !r.dfsSetting.IsCe {
 	// 	// When using hostNetwork, the MountPod will use a random port for metrics.
 	// 	// Before inducing any auxiliary method to detect that random port, the
@@ -149,7 +151,7 @@ func (r *BaseBuilder) genMountCommand() string {
 	cmd := ""
 	options := r.dfsSetting.Options
 
-	klog.Info("ceMount", "source", util.StripPasswd(r.dfsSetting.Source), "mountPath", r.dfsSetting.MountPath)
+	klog.Infof("Mount source:%s, mountPath:%s", util.StripPasswd(r.dfsSetting.Source), r.dfsSetting.MountPath)
 	mountArgs := []string{"exec", config.CliPath, "${metaurl}", security.EscapeBashStr(r.dfsSetting.MountPath)}
 	if !util.ContainsPrefix(options, "metrics=") {
 		if r.dfsSetting.Attr.HostNetwork {
@@ -271,11 +273,11 @@ func (r *BaseBuilder) _genMetadata() (labels map[string]string, annotations map[
 	return
 }
 
-// _genJuiceVolumes generates volumes & volumeMounts
+// _genVolumes generates volumes & volumeMounts
 // 1. if encrypt_rsa_key is set, mount secret to /root/.rsa
 // 2. if initconfig is set, mount secret to /etc/dingofs
 // 3. configs in secret
-func (r *BaseBuilder) _genJuiceVolumes() ([]corev1.Volume, []corev1.VolumeMount) {
+func (r *BaseBuilder) _genDfsVolumes() ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes := []corev1.Volume{}
 	volumeMounts := []corev1.VolumeMount{}
 	secretName := r.dfsSetting.SecretName

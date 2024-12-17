@@ -769,12 +769,12 @@ func GenPodAttrWithMountPod(ctx context.Context, client *k8sclient.K8sClient, mo
 	pvName := mountPod.Annotations[UniqueId]
 	pv, err := client.GetPersistentVolume(ctx, pvName)
 	if err != nil {
-		klog.Error(err, "Get pv error", "pv", pvName)
+		klog.ErrorS(err, "Get pv error", "pv", pvName)
 		return nil, err
 	}
 	pvc, err := client.GetPersistentVolumeClaim(ctx, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace)
 	if err != nil {
-		klog.Error(err, "Get pvc error", "namespace", pv.Spec.ClaimRef.Namespace, "name", pv.Spec.ClaimRef.Name)
+		klog.ErrorS(err, "Get pvc error", "namespace", pv.Spec.ClaimRef.Namespace, "name", pv.Spec.ClaimRef.Name)
 		return nil, err
 	}
 	cpuLimit := pvc.Annotations[MountPodCpuLimitKey]

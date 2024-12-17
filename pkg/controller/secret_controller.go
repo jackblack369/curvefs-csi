@@ -119,7 +119,7 @@ func (m *SecretController) Reconcile(ctx context.Context, request reconcile.Requ
 	for k, v := range secrets.Data {
 		secretsMap[k] = string(v[:])
 	}
-	dfsSetting, err := dfs.Settings(ctx, "", secretsMap, nil, nil)
+	dfsSetting, err := dfs.InitFS(ctx, "", secretsMap, nil, nil)
 	if err != nil {
 		return reconcile.Result{}, err
 	}

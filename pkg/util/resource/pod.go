@@ -115,11 +115,11 @@ func RemoveFinalizer(ctx context.Context, client *k8sclient.K8sClient, pod *core
 	}}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		klog.Error(err, "Parse json error")
+		klog.ErrorS(err, "Parse json error")
 		return err
 	}
 	if err := client.PatchPod(ctx, pod, payloadBytes, types.JSONPatchType); err != nil {
-		klog.Error(err, "Patch pod err")
+		klog.ErrorS(err, "Patch pod err")
 		return err
 	}
 	return nil
@@ -134,12 +134,12 @@ func AddPodLabel(ctx context.Context, client *k8sclient.K8sClient, pod *corev1.P
 
 	payloadBytes, err := json.Marshal(payloads)
 	if err != nil {
-		klog.Error(err, "Parse json error")
+		klog.ErrorS(err, "Parse json error")
 		return err
 	}
-	klog.Info("add labels in pod", "labels", addLabels, "pod", pod.Name)
+	klog.Infof("add labels in pod[%s], labels:%v", pod.Name, addLabels)
 	if err := client.PatchPod(ctx, pod, payloadBytes, types.StrategicMergePatchType); err != nil {
-		klog.Error(err, "Patch pod error", "podName", pod.Name)
+		klog.ErrorS(err, "Patch pod error", "podName", pod.Name)
 		return err
 	}
 	return nil
@@ -153,12 +153,12 @@ func AddPodAnnotation(ctx context.Context, client *k8sclient.K8sClient, pod *cor
 	}
 	payloadBytes, err := json.Marshal(payloads)
 	if err != nil {
-		klog.Error(err, "Parse json error")
+		klog.ErrorS(err, "Parse json error")
 		return err
 	}
 	klog.V(1).Info("add annotation in pod", "annotations", addAnnotations, "podName", pod.Name)
 	if err := client.PatchPod(ctx, pod, payloadBytes, types.StrategicMergePatchType); err != nil {
-		klog.Error(err, "Patch pod error", "podName", pod.Name)
+		klog.ErrorS(err, "Patch pod error", "podName", pod.Name)
 		return err
 	}
 	return nil
@@ -174,12 +174,12 @@ func DelPodAnnotation(ctx context.Context, client *k8sclient.K8sClient, pod *cor
 	}
 	payloadBytes, err := json.Marshal(payloads)
 	if err != nil {
-		klog.Error(err, "Parse json error")
+		klog.ErrorS(err, "Parse json error")
 		return err
 	}
 	klog.V(1).Info("remove annotations of pod", "annotations", delAnnotations, "podName", pod.Name)
 	if err := client.PatchPod(ctx, pod, payloadBytes, types.JSONPatchType); err != nil {
-		klog.Error(err, "Patch pod error", "podName", pod.Name)
+		klog.ErrorS(err, "Patch pod error", "podName", pod.Name)
 		return err
 	}
 	return nil
@@ -193,12 +193,12 @@ func ReplacePodAnnotation(ctx context.Context, client *k8sclient.K8sClient, pod 
 	}}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		klog.Error(err, "Parse json error")
+		klog.ErrorS(err, "Parse json error")
 		return err
 	}
 	klog.V(1).Info("Replace annotations of pod", "annotations", annotation, "podName", pod.Name)
 	if err := client.PatchPod(ctx, pod, payloadBytes, types.JSONPatchType); err != nil {
-		klog.Error(err, "Patch pod error", "podName", pod.Name)
+		klog.ErrorS(err, "Patch pod error", "podName", pod.Name)
 		return err
 	}
 	return nil
@@ -259,20 +259,20 @@ func ShouldDelay(ctx context.Context, pod *corev1.Pod, Client *k8s.K8sClient) (s
 		// need to add delayAt annotation
 		d, err := util.GetTimeAfterDelay(delayStr)
 		if err != nil {
-			klog.Error(err, "delayDelete: can't parse delay time", "time", d)
+			klog.ErrorS(err, "delayDelete: can't parse delay time", "time", d)
 			return false, nil
 		}
 		addAnnotation := map[string]string{config.DeleteDelayAtKey: d}
 		klog.Info("delayDelete: add annotation to pod", "annotations", addAnnotation, "podName", pod.Name)
 		if err := AddPodAnnotation(ctx, Client, pod, addAnnotation); err != nil {
-			klog.Error(err, "delayDelete: Update pod error", "podName", pod.Name)
+			klog.ErrorS(err, "delayDelete: Update pod error", "podName", pod.Name)
 			return true, err
 		}
 		return true, nil
 	}
 	delayAt, err := util.GetTime(delayAtStr)
 	if err != nil {
-		klog.Error(err, "delayDelete: can't parse delayAt", "delayAt", delayAtStr)
+		klog.ErrorS(err, "delayDelete: can't parse delayAt", "delayAt", delayAtStr)
 		return false, nil
 	}
 	return time.Now().Before(delayAt), nil
@@ -378,14 +378,14 @@ func GetErrContainerLog(ctx context.Context, client *k8s.K8sClient, podName stri
 
 func GenMountPodName(ctx context.Context, client *k8sclient.K8sClient, dfsSetting *config.DfsSetting) (string, error) {
 	labelSelector := &metav1.LabelSelector{MatchLabels: map[string]string{
-		config.PodTypeKey:           config.PodTypeValue,
-		config.PodUniqueIdLabelKey:  dfsSetting.UniqueId,
-		config.PodJuiceHashLabelKey: dfsSetting.HashVal,
+		config.PodTypeKey:          config.PodTypeValue,
+		config.PodUniqueIdLabelKey: dfsSetting.UniqueId,
+		config.PodHashLabelKey:     dfsSetting.HashVal,
 	}}
 	klog.Info("pod selector label", labelSelector)
 	pods, err := client.ListPod(ctx, config.Namespace, labelSelector, nil)
 	if err != nil {
-		klog.Error(err, "List pods of uniqueId:%s, hashVal:%s", dfsSetting.UniqueId, dfsSetting.HashVal)
+		klog.ErrorS(err, "List pods of uniqueId:%s, hashVal:%s", dfsSetting.UniqueId, dfsSetting.HashVal)
 		return "", err
 	}
 	for _, pod := range pods {
@@ -465,7 +465,7 @@ func CreateOrUpdateSecret(ctx context.Context, client *k8sclient.K8sClient, secr
 		return client.UpdateSecret(ctx, oldSecret)
 	})
 	if err != nil {
-		klog.Error(err, "create or update secret error", "secretName", secret.Name)
+		klog.ErrorS(err, "create or update secret error", "secretName", secret.Name)
 		return err
 	}
 	return nil

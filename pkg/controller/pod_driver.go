@@ -36,7 +36,6 @@ import (
 	"github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/fuse"
 	"github.com/jackblack369/dingofs-csi/pkg/k8sclient"
-	podmount "github.com/jackblack369/dingofs-csi/pkg/mount"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
 	"github.com/jackblack369/dingofs-csi/pkg/util/resource"
 )
@@ -144,7 +143,7 @@ func getPodStatus(pod *corev1.Pod) podStatus {
 func (p *PodDriver) checkAnnotations(ctx context.Context, pod *corev1.Pod) error {
 	log := util.GenLog(ctx, podDriverLog, "")
 	// check refs in mount pod, the corresponding pod exists or not
-	hashVal := pod.Labels[config.PodJuiceHashLabelKey]
+	hashVal := pod.Labels[config.PodHashLabelKey]
 	if hashVal == "" {
 		return fmt.Errorf("pod %s/%s has no hash label", pod.Namespace, pod.Name)
 	}
@@ -231,7 +230,7 @@ func (p *PodDriver) podErrorHandler(ctx context.Context, pod *corev1.Pod) (Resul
 		return Result{}, nil
 	}
 	log := util.GenLog(ctx, podDriverLog, "podErrorHandler")
-	hashVal := pod.Labels[config.PodJuiceHashLabelKey]
+	hashVal := pod.Labels[config.PodHashLabelKey]
 	if hashVal == "" {
 		return Result{}, fmt.Errorf("pod %s/%s has no hash label", pod.Namespace, pod.Name)
 	}
@@ -347,7 +346,7 @@ func (p *PodDriver) podDeletedHandler(ctx context.Context, pod *corev1.Pod) (Res
 	annotation := pod.Annotations
 	existTargets := make(map[string]string)
 
-	hashVal := pod.Labels[config.PodJuiceHashLabelKey]
+	hashVal := pod.Labels[config.PodHashLabelKey]
 	if hashVal == "" {
 		return Result{}, fmt.Errorf("pod %s/%s has no hash label", pod.Namespace, pod.Name)
 	}
@@ -451,7 +450,7 @@ func (p *PodDriver) podPendingHandler(ctx context.Context, pod *corev1.Pod) (Res
 		return Result{}, nil
 	}
 	log := util.GenLog(ctx, podDriverLog, "podPendingHandler")
-	hashVal := pod.Labels[config.PodJuiceHashLabelKey]
+	hashVal := pod.Labels[config.PodHashLabelKey]
 	if hashVal == "" {
 		return Result{}, fmt.Errorf("pod %s/%s has no hash label", pod.Namespace, pod.Name)
 	}
@@ -542,7 +541,7 @@ func (p *PodDriver) podReadyHandler(ctx context.Context, pod *corev1.Pod) (Resul
 	lock.Lock()
 	defer lock.Unlock()
 
-	podHashVal := pod.Labels[config.PodJuiceHashLabelKey]
+	podHashVal := pod.Labels[config.PodHashLabelKey]
 
 	err = resource.WaitUtilMountReady(ctx, pod.Name, mntPath, defaultCheckoutTimeout)
 	if err != nil {
@@ -736,7 +735,7 @@ func (p *PodDriver) CleanUpCache(ctx context.Context, pod *corev1.Pod) {
 		return
 	}
 	log.Info("Cleanup cache of volume", "uniqueId", uniqueId, "node", config.NodeName)
-	podMnt := podmount.NewPodMount(p.Client, p.SafeFormatAndMount)
+	podMnt := builder.NewPodMount(p.Client, p.SafeFormatAndMount)
 	cacheDirs := []string{}
 	for _, dir := range pod.Spec.Volumes {
 		if strings.HasPrefix(dir.Name, "cachedir-") && dir.HostPath != nil {

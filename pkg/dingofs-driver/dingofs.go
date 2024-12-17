@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -11,9 +12,10 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/jackblack369/dingofs-csi/pkg/builder"
 	"github.com/jackblack369/dingofs-csi/pkg/config"
+	curvefsdriver "github.com/jackblack369/dingofs-csi/pkg/curvefs-driver"
 	"github.com/jackblack369/dingofs-csi/pkg/k8sclient"
-	podmount "github.com/jackblack369/dingofs-csi/pkg/mount"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
 	"github.com/jackblack369/dingofs-csi/pkg/util/resource"
 	"github.com/jackblack369/dingofs-csi/pkg/util/security"
@@ -40,7 +42,7 @@ type Provider interface {
 	DfsCleanupMountPoint(ctx context.Context, mountPath string) error
 	GetDfsVolUUID(ctx context.Context, dfsSetting *config.DfsSetting) (string, error)
 	SetQuota(ctx context.Context, secrets map[string]string, dfsSetting *config.DfsSetting, quotaPath string, capacity int64) error
-	Settings(ctx context.Context, volumeID string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error)
+	InitFS(ctx context.Context, volumeID string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error)
 	GetSubPath(ctx context.Context, volumeID string) (string, error)
 	CreateTarget(ctx context.Context, target string) error
 	AuthFs(ctx context.Context, secrets map[string]string, dfsSetting *config.DfsSetting, force bool) (string, error)
@@ -52,7 +54,7 @@ type dingofs struct {
 	mount.SafeFormatAndMount
 	*k8sclient.K8sClient
 
-	podMount     podmount.MntInterface
+	podMount     builder.MntInterface
 	UUIDMaps     map[string]string
 	CacheDirMaps map[string][]string
 }
@@ -65,7 +67,7 @@ func NewDfsProvider(mounter *mount.SafeFormatAndMount, k8sClient *k8sclient.K8sC
 			Exec:      k8sexec.New(),
 		}
 	}
-	podMnt := podmount.NewPodMount(k8sClient, *mounter)
+	podMnt := builder.NewPodMount(k8sClient, *mounter)
 
 	uuidMaps := make(map[string]string)
 	cacheDirMaps := make(map[string][]string)
@@ -84,7 +86,7 @@ func (d *dingofs) DfsMount(ctx context.Context, volumeID string, target string, 
 		return nil, err
 	}
 	// genDfsSettings get dfs settings and unique id, which will init dingofs fs by ceFormat
-	dfsSetting, err := d.genDfsSettings(ctx, volumeID, target, secrets, volCtx, options)
+	dfsSetting, err := d.genDfsSettingsAndFS(ctx, volumeID, target, secrets, volCtx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +110,7 @@ func (d *dingofs) DfsMount(ctx context.Context, volumeID string, target string, 
 
 // MountFs mounts DingoFS with idempotency
 func (d *dingofs) MountFs(ctx context.Context, appInfo *config.AppInfo, dfsSetting *config.DfsSetting) (string, error) {
-	var mnt podmount.MntInterface
+	var mnt builder.MntInterface
 
 	dfsSetting.MountPath = filepath.Join(config.PodMountBase, dfsSetting.UniqueId) // e.g. /dfs/pvc-7175fc74-d52d-46bc-94b3-ad9296b726cd-alypal
 	mnt = d.podMount
@@ -117,7 +119,7 @@ func (d *dingofs) MountFs(ctx context.Context, appInfo *config.AppInfo, dfsSetti
 	if err != nil {
 		return "", err
 	}
-	klog.Info("mounting with options, source:[%s], mountPath:[%s], options:[%s]", util.StripPasswd(dfsSetting.Source), dfsSetting.MountPath, dfsSetting.Options)
+	klog.Infof("mounting with options, source:[%s], mountPath:[%s], options:[%s]", util.StripPasswd(dfsSetting.Source), dfsSetting.MountPath, dfsSetting.Options)
 	return dfsSetting.MountPath, nil
 }
 
@@ -149,40 +151,43 @@ func (d *dingofs) validTarget(target string) error {
 	return nil
 }
 
-// genDfsSettings get dfs settings and unique id
-func (d *dingofs) genDfsSettings(ctx context.Context, volumeID string, target string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error) {
-	// get settings
-	dfsSetting, err := d.Settings(ctx, volumeID, secrets, volCtx, options)
+// genDfsSettingsAndFS get dfs settings, unique id and init file system
+func (d *dingofs) genDfsSettingsAndFS(ctx context.Context, volumeID string, target string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error) {
+	// get settings and init file system
+	dfsSetting, err := d.InitFS(ctx, volumeID, secrets, volCtx, options)
 	if err != nil {
 		return nil, err
 	}
+
 	dfsSetting.TargetPath = target
 	// get unique id, uniqueId is not uuid
 	uniqueId, err := d.getUniqueId(ctx, volumeID) // e.g. pvc-7175fc74-d52d-46bc-94b3-ad9296b726cd
 	if err != nil {
-		klog.Error(err, "Get volume name by volume id error", "volumeID", volumeID)
+		klog.ErrorS(err, "Get volume name by volume id error", "volumeID", volumeID)
 		return nil, err
 	}
-	klog.V(1).Info("Get uniqueId of volume", "volumeId", volumeID, "uniqueId", uniqueId)
+	klog.Infof("Get uniqueId of volume, volumeId:%s, uniqueId:%s", volumeID, uniqueId)
 	dfsSetting.UniqueId = uniqueId
 	dfsSetting.SecretName = fmt.Sprintf("dingofs-%s-secret", dfsSetting.UniqueId) // e.g. dingofs-pvc-7175fc74-d52d-46bc-94b3-ad9296b726cd-secret
 	if dfsSetting.CleanCache {
 		uuid := dfsSetting.Name
+		klog.Info("check cache dir:", uuid)
 		if uuid, err = d.GetDfsVolUUID(ctx, dfsSetting); err != nil {
 			return nil, err
 		}
 		dfsSetting.FSID = uuid
 
-		klog.V(1).Info("Get uuid of volume", "volumeId", volumeID, "uuid", uuid)
+		klog.Infof("Get info of volume, volumeId:%s, uuid:%s", volumeID, uuid)
 	}
+	klog.Infof("dfs setting info: %v", dfsSetting)
 	return dfsSetting, nil
 }
 
-// Settings get all dfs settings and generate format/auth command
-func (d *dingofs) Settings(ctx context.Context, volumeID string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error) {
+// InitFS get all dfs settings
+func (d *dingofs) InitFS(ctx context.Context, volumeID string, secrets, volCtx map[string]string, options []string) (*config.DfsSetting, error) {
 	pv, pvc, err := resource.GetPVWithVolumeHandleOrAppInfo(ctx, d.K8sClient, volumeID, volCtx)
 	if err != nil {
-		klog.Error(err, "Get PV with volumeID error", "volumeId", volumeID)
+		klog.ErrorS(err, "Get PV with volumeID error", "volumeId", volumeID)
 	}
 	// overwrite volCtx with pvc annotations
 	if pvc != nil {
@@ -199,10 +204,16 @@ func (d *dingofs) Settings(ctx context.Context, volumeID string, secrets, volCtx
 
 	dfsSetting, err := config.ParseSetting(secrets, volCtx, options, pv, pvc)
 	if err != nil {
-		klog.Error(err, "Parse config error", "secret", secrets["name"])
+		klog.ErrorS(err, "Parse config error", "secret", secrets["name"])
 		return nil, err
 	}
 	dfsSetting.VolumeId = volumeID
+
+	// create dingofs by 'dingo create fs xxx' command
+	err = d.CreateFS(secrets)
+	if err != nil {
+		return nil, fmt.Errorf("dingofs create fs error: %v", err)
+	}
 
 	return dfsSetting, nil
 }
@@ -249,7 +260,7 @@ func (d *dingofs) GetDfsVolUUID(ctx context.Context, dfsSetting *config.DfsSetti
 			klog.V(1).Info("dingofs not formatted.", "name", dfsSetting.Source)
 			return "", nil
 		}
-		klog.Error(err, "dingofs status error", "output", re)
+		klog.ErrorS(err, "dingofs status error", "output", re)
 		if cmdCtx.Err() == context.DeadlineExceeded {
 			re = fmt.Sprintf("dingofs status %s timed out", 8*config.DefaultCheckTimeout)
 			return "", errors.New(re)
@@ -276,7 +287,7 @@ func (d *dingofs) DfsDeleteVol(ctx context.Context, volumeID string, subPath str
 	volCtx = pv.Spec.CSI.VolumeAttributes
 	options = pv.Spec.MountOptions
 
-	dfsSetting, err := d.genDfsSettings(ctx, volumeID, "", secrets, volCtx, options)
+	dfsSetting, err := d.genDfsSettingsAndFS(ctx, volumeID, "", secrets, volCtx, options)
 	if err != nil {
 		return err
 	}
@@ -384,7 +395,7 @@ func (d *dingofs) DfsCleanupMountPoint(ctx context.Context, mountPath string) er
 func (d *dingofs) DfsUnmount(ctx context.Context, volumeId, mountPath string) error {
 	uniqueId, err := d.getUniqueId(ctx, volumeId)
 	if err != nil {
-		klog.Error(err, "Get volume name by volume id error", "volumeId", volumeId)
+		klog.ErrorS(err, "Get volume name by volume id error", "volumeId", volumeId)
 		return err
 	}
 
@@ -398,7 +409,7 @@ func (d *dingofs) DfsUnmount(ctx context.Context, volumeId, mountPath string) er
 	pod, err := d.K8sClient.GetPod(ctx, oldPodName, config.Namespace)
 	if err != nil {
 		if !k8serrors.IsNotFound(err) {
-			klog.Error(err, "Get mount pod error", "pod", oldPodName)
+			klog.ErrorS(err, "Get mount pod error", "pod", oldPodName)
 			return err
 		}
 	}
@@ -413,7 +424,7 @@ func (d *dingofs) DfsUnmount(ctx context.Context, volumeId, mountPath string) er
 	fieldSelector := &fields.Set{"spec.nodeName": config.NodeName}
 	pods, err := d.K8sClient.ListPod(ctx, config.Namespace, labelSelector, fieldSelector)
 	if err != nil {
-		klog.Error(err, "List pods of uniqueId error", "uniqueId", uniqueId)
+		klog.ErrorS(err, "List pods of uniqueId error", "uniqueId", uniqueId)
 		return err
 	}
 	mountPods = append(mountPods, pods...)
@@ -427,7 +438,7 @@ func (d *dingofs) DfsUnmount(ctx context.Context, volumeId, mountPath string) er
 	}
 	if mountPod != nil {
 		podName = mountPod.Name
-		hashVal = mountPod.Labels[config.PodJuiceHashLabelKey]
+		hashVal = mountPod.Labels[config.PodHashLabelKey]
 		if hashVal == "" {
 			return fmt.Errorf("pod %s/%s has no hash label", mountPod.Namespace, mountPod.Name)
 		}
@@ -560,7 +571,7 @@ func (d *dingofs) AuthFs(ctx context.Context, secrets map[string]string, setting
 	klog.Info("auth output", "output", res)
 	if err != nil {
 		re := string(res)
-		klog.Error(err, "auth error")
+		klog.ErrorS(err, "auth error")
 		if cmdCtx.Err() == context.DeadlineExceeded {
 			re = fmt.Sprintf("dingofs auth %s timed out", 8*defaultCheckTimeout)
 			return "", errors.New(re)
@@ -568,4 +579,85 @@ func (d *dingofs) AuthFs(ctx context.Context, secrets map[string]string, setting
 		return "", errors.Wrap(err, re)
 	}
 	return string(res), nil
+}
+
+// CreateFS creates a file system
+func (d *dingofs) CreateFS(
+	secrets map[string]string,
+) error {
+	if secrets["storage"] == "" || secrets["bucket"] == "" {
+		klog.Info("DfsMount: storage or bucket is emptyd")
+	}
+	fsName := secrets["name"]
+	//if _, ok := fss[fsName]; ok {
+	//	klog.Infof("file system: %s has beed already created", fsName)
+	//	return nil
+	//}
+	ct := curvefsdriver.NewCurvefsTool()
+	err := ct.ValidateCommonParamsV2(secrets)
+	if err != nil {
+		return err
+	}
+
+	// check fs exist or not
+	fsExisted, err := ct.CheckFsExisted(fsName, ct.ToolParams["mdsaddr"])
+	if err != nil {
+		return err
+	}
+	if fsExisted {
+		klog.Infof("file system: %s has beed already created", fsName)
+		return nil
+	}
+
+	err = ct.ValidateCreateFsParamsV2(secrets)
+	if err != nil {
+		return err
+	}
+	ct.ToolParams["fsname"] = fsName
+	// call dingofs create fs
+	createFsArgs := []string{"create", "fs"}
+	for k, v := range ct.ToolParams {
+		arg := fmt.Sprintf("--%s=%s", k, v)
+		createFsArgs = append(createFsArgs, arg)
+	}
+
+	klog.V(1).Infof("create fs, createFsArgs: %v", createFsArgs)
+	createFsCmd := exec.Command(config.CliPath, createFsArgs...) //
+	output, err := createFsCmd.CombinedOutput()
+	if err != nil {
+		return status.Errorf(
+			codes.Internal,
+			"dingo create fs failed. cmd: %s %v, output: %s, err: %v",
+			config.CliPath,
+			createFsArgs,
+			output,
+			err,
+		)
+	}
+
+	configQuotaArgs := []string{"config", "fs", "--fsname=" + fsName, "--mdsaddr=" + ct.ToolParams["mdsaddr"]}
+	if len(ct.QuotaParams) != 0 {
+		for k, v := range ct.QuotaParams {
+			arg := fmt.Sprintf("--%s=%s", k, v)
+			configQuotaArgs = append(configQuotaArgs, arg)
+		}
+		klog.V(1).Infof("config fs, configQuotaArgs: %v", configQuotaArgs)
+		configQuotaCmd := exec.Command(config.CliPath, configQuotaArgs...)
+		outputQuota, errQuota := configQuotaCmd.CombinedOutput()
+		if errQuota != nil {
+			return status.Errorf(
+				codes.Internal,
+				"dingo config fs quota failed. cmd: %s %v, output: %s, err: %v",
+				config.CliPath,
+				configQuotaArgs,
+				outputQuota,
+				errQuota,
+			)
+		}
+	}
+
+	//fss[fsName] = fsName
+	klog.Infof("create fs success, fsName: %s, quota: %v", fsName, ct.QuotaParams)
+
+	return nil
 }

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	config "github.com/jackblack369/dingofs-csi/pkg/config"
+	"github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/mount"

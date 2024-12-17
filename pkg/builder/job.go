@@ -84,7 +84,7 @@ func GenJobNameByVolumeId(volumeId string) string {
 func (r *JobBuilder) newJob(jobName string) *batchv1.Job {
 	secretName := jobName + "-secret"
 	r.dfsSetting.SecretName = secretName
-	podTemplate := r.genCommonJuicePod(r.genCommonContainer)
+	podTemplate := r.genCommonPod(r.genCommonContainer)
 	ttlSecond := DefaultJobTTLSecond
 	podTemplate.Spec.Containers[0].Lifecycle = &corev1.Lifecycle{
 		PreStop: &corev1.LifecycleHandler{
