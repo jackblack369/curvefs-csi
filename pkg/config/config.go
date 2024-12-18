@@ -31,6 +31,17 @@ var (
 	// DefaultMountImage = "dingodatabase/dingofs-csi:latest" // mount pod image, override by ENV
 	DefaultMountImage = "harbor.zetyun.cn/dingofs/dingofs-csi:v2.1-alpha" // TODO upgrade image version
 	MountPointPath    = "/var/lib/dingofs/volume"
+
+	FORMAT_FUSE_ARGS = []string{
+		"-f",
+		"-o default_permissions",
+		"-o allow_other",
+		"-o fsname=%s", // fsname
+		"-o fstype=%s", // fstype, `s3` or `volume`
+		"-o user=curvefs",
+		"-o conf=%s", // config path
+		"%s",         // mount path
+	}
 )
 
 const (
@@ -56,6 +67,9 @@ const (
 	DefaultCheckTimeout = 2 * time.Second
 
 	MountContainerName = "dfs-mount"
+
+	// default dingo-fuse config key (set env with underscore instead dot in bash)
+	MdsAddrKey = "mdsOpt_rpcRetryOpt_addrs"
 
 	// default value
 	DefaultMountPodCpuLimit   = "2000m"
@@ -90,8 +104,11 @@ const (
 	DfsFuseFsPathInHost = "/var/run/dingofs-csi"
 	DfsCommEnv          = "DFS_SUPER_COMM"
 
-	DefaultClientConfPath = "/root/.dingofs"
-	CliPath               = "/usr/bin/dingofs"
+	DefaultBootstrapPath  = "/scripts"
+	DefaultBootstrapShell = "mountpoint.sh"
+	DefaultClientConfPath = "/curvefs/conf/client.conf"
+	DfsCMDPath            = "/usr/bin/dingo"
+	DfsFuseCMDPath        = "/curvefs/client/sbin/dingo-fuse"
 
 	TmpPodMountBase = "/tmp"
 

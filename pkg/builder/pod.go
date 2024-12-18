@@ -17,50 +17,76 @@ limitations under the License.
 package builder
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
 	"github.com/jackblack369/dingofs-csi/pkg/config"
+	"github.com/jackblack369/dingofs-csi/pkg/k8sclient"
+	"github.com/jackblack369/dingofs-csi/pkg/util/script"
 )
 
 type PodBuilder struct {
 	BaseBuilder
+	K8sClient *k8sclient.K8sClient
 }
 
-func NewPodBuilder(setting *config.DfsSetting, capacity int64) *PodBuilder {
+func NewPodBuilder(setting *config.DfsSetting, capacity int64, k8sCli *k8sclient.K8sClient) *PodBuilder {
 	return &PodBuilder{
 		BaseBuilder: BaseBuilder{
 			dfsSetting: setting,
 			capacity:   capacity,
 		},
+		K8sClient: k8sCli,
 	}
 }
 
-// NewMountPod generates a pod with dingofs client
+// NewMountPod generates a pod with dingo-fuse bootstrap
 func (r *PodBuilder) NewMountPod(podName string) (*corev1.Pod, error) {
 	pod := r.genCommonPod(r.genCommonContainer)
 
+	err := r.initFuseConfig(pod)
+	if err != nil {
+		return nil, err
+	}
+
 	pod.Name = podName
 	klog.V(6).Infof("mount pod[%s] spec info[%#v]", podName, pod.Spec)
-	mountCmd := r.genMountCommand()
-	cmd := mountCmd
-	initCmd := r.genInitCommand()
-	if initCmd != "" {
-		cmd = strings.Join([]string{initCmd, mountCmd}, "\n")
-	}
-	pod.Spec.Containers[0].Command = []string{"sh", "-c", cmd}
+	//mountCmd := r.genMountFSCommand()
+	//cmd := mountCmd
+	// initCmd := r.genInitFSCommand()
+	// if initCmd != "" {
+	// 	cmd = strings.Join([]string{initCmd, mountCmd}, "\n")
+	// }
+	//
+
+	// transfer dingo-fuse args to pod's bootstrap cmd
+
+	// var mountFsArgs []string
+	// mountFsArgs = append(mountFsArgs, "-o fstype=s3 -o default_permissions -o allow_other")
+	// mountFsArgs = append(mountFsArgs, "-o conf="+r.dfsSetting.ClientConfPath, "-o fsname="+r.dfsSetting.Name, r.dfsSetting.MountPath)
+	// mountFsArgsStr := strings.Join(mountFsArgs, " ")
+	// mountFsCMD := fmt.Sprintf("%s --role=client --args='%s'", config.DefaultBootstrapPath+"/"+config.DefaultBootstrapShell, mountFsArgsStr) // /scripts/mountpoint.sh --role=client --args='-o default_permissions...'
+
+	format := strings.Join(config.FORMAT_FUSE_ARGS, " ")
+	fuseArgs := fmt.Sprintf(format, r.dfsSetting.Name, "s3", r.dfsSetting.ClientConfPath, r.dfsSetting.MountPath)
+	mountFsCMD := fmt.Sprintf("%s %s %s --role=client --args='%s'", config.DefaultBootstrapPath+"/"+config.DefaultBootstrapShell, r.dfsSetting.Name, "s3", fuseArgs)
+
+	pod.Spec.Containers[0].Command = []string{"sh", "-c", mountFsCMD}
+
 	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 		Name:  "DFS_FOREGROUND",
 		Value: "1",
 	})
 
-	// inject fuse fd
+	// erase: inject fuse fd
 	// if podName != "" && util.SupportFusePass(pod.Spec.Containers[0].Image) {
 	// 	fdAddress, err := fuse.GlobalFds.GetFdAddress(context.TODO(), r.dfsSetting.HashVal)
 	// 	if err != nil {
@@ -99,6 +125,51 @@ func (r *PodBuilder) NewMountPod(podName string) (*corev1.Pod, error) {
 	}
 
 	return pod, nil
+}
+
+// initFuseConfig: set outer specify script to pod bootstrap command
+func (r *PodBuilder) initFuseConfig(pod *corev1.Pod) error {
+	mountScriptContent := script.SHELL_MOUNT_POINT
+
+	// create a ConfigMap with the specified content
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "dingo-fuse-config",
+		},
+		Data: map[string]string{
+			config.DefaultBootstrapShell: mountScriptContent,
+		},
+	}
+
+	// Create the ConfigMap in the Kubernetes cluster
+	_, err := r.K8sClient.CoreV1().ConfigMaps(r.dfsSetting.Attr.Namespace).Create(context.TODO(), configMap, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		klog.ErrorS(err, "Failed to create ConfigMap")
+		return err
+	}
+
+	// Add ConfigMap volume with defaultMode set to 0755
+	pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+		Name: "config-volume",
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: configMap.Name,
+				},
+				DefaultMode: func() *int32 {
+					mode := int32(0755)
+					return &mode
+				}(),
+			},
+		},
+	})
+
+	// Mount the volume into the container
+	pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+		Name:      "config-volume",
+		MountPath: config.DefaultBootstrapPath,
+	})
+	return nil
 }
 
 // genCommonContainer: generate common privileged container

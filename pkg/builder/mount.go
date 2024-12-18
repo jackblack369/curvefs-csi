@@ -42,9 +42,9 @@ type MntInterface interface {
 	DMount(ctx context.Context, appInfo *config.AppInfo, dfsSetting *config.DfsSetting) error
 	// DCreateVolume(ctx context.Context, dfsSetting *dfsConfig.dfsSetting) error
 	DeleteVolume(ctx context.Context, dfsSetting *config.DfsSetting) error
-	GetMountRef(ctx context.Context, target, podName string) (int, error) // podName is only used by podMount
-	UmountTarget(ctx context.Context, target, podName string) error       // podName is only used by podMount
-	DUmount(ctx context.Context, target, podName string) error            // podName is only used by podMount
+	GetMountRef(ctx context.Context, target, podName string) (int, error)
+	UmountTarget(ctx context.Context, target, podName string) error
+	DUmount(ctx context.Context, target, podName string) error
 	AddRefOfMount(ctx context.Context, target string, podName string) error
 	CleanCache(ctx context.Context, image string, id string, volumeId string, cacheDirs []string) error
 }
@@ -60,6 +60,7 @@ func NewPodMount(client *k8sclient.K8sClient, mounter k8sMount.SafeFormatAndMoun
 	return &PodMount{mounter, client}
 }
 
+// DMount mount dfs volume
 func (p *PodMount) DMount(ctx context.Context, appInfo *config.AppInfo, dfsSetting *config.DfsSetting) error {
 	hashVal := util.GenHashOfSetting(*dfsSetting)
 	dfsSetting.HashVal = hashVal
@@ -85,7 +86,8 @@ func (p *PodMount) DMount(ctx context.Context, appInfo *config.AppInfo, dfsSetti
 			}
 		}
 
-		err = p.createOrAddRef(ctx, mountPodName, dfsSetting, appInfo) // bootstrap mount pod
+		// bootstrap mount pod
+		err = p.createPodOrAddRef(ctx, mountPodName, dfsSetting, appInfo)
 		if err != nil {
 			return err
 		}
@@ -113,7 +115,7 @@ func (p *PodMount) DMount(ctx context.Context, appInfo *config.AppInfo, dfsSetti
 	return nil
 }
 
-func (p *PodMount) createOrAddRef(ctx context.Context, podName string, dfsSetting *config.DfsSetting, appinfo *config.AppInfo) (err error) {
+func (p *PodMount) createPodOrAddRef(ctx context.Context, podName string, dfsSetting *config.DfsSetting, appinfo *config.AppInfo) (err error) {
 	klog.Infof("check mount pod[%s] existed or not", podName)
 	dfsSetting.MountPath = dfsSetting.MountPath + podName[len(podName)-7:] // e.g. /dfs/pvc-7175fc74-d52d-46bc-94b3-ad9296b726cd-alypal
 	dfsSetting.SecretName = fmt.Sprintf("dingofs-%s-secret", dfsSetting.UniqueId)
@@ -129,7 +131,7 @@ func (p *PodMount) createOrAddRef(ctx context.Context, podName string, dfsSettin
 		return
 	}
 
-	r := NewPodBuilder(dfsSetting, 0)
+	r := NewPodBuilder(dfsSetting, 0, p.K8sClient)
 	secret := r.NewSecret()
 	SetPVAsOwner(&secret, dfsSetting.PV)
 
@@ -150,7 +152,7 @@ func (p *PodMount) createOrAddRef(ctx context.Context, podName string, dfsSettin
 				// pod not exist, create
 				klog.Infof("Begin create pod:%s, config info:%v", podName, dfsSetting)
 				newPod, err := r.NewMountPod(podName)
-				klog.V(6).Infof("mount pod:%s create successful!", podName)
+				klog.V(5).Infof("init mount pod spec:%#v", newPod.Spec)
 				if err != nil {
 					klog.ErrorS(err, "Make new mount pod error", "podName", podName)
 					return err
@@ -186,6 +188,7 @@ func (p *PodMount) createOrAddRef(ctx context.Context, podName string, dfsSettin
 				if err != nil {
 					klog.ErrorS(err, "Create pod err", "podName", podName)
 				}
+				klog.V(6).Infof("mount pod:%s create successful!", podName)
 				return err
 			} else if k8serrors.IsTimeout(err) {
 				return fmt.Errorf("mount %v failed: mount pod %s deleting timeout", dfsSetting.VolumeId, podName)

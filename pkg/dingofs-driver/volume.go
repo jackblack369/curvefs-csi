@@ -26,11 +26,11 @@ type DfsInterface interface {
 }
 
 type dfs struct {
-	Provider  *dingofs
-	Name      string
-	MountPath string
-	Options   []string
-	Setting   *config.DfsSetting
+	Provider     *dingofs
+	Name         string
+	MountPath    string
+	MountOptions []string
+	Setting      *config.DfsSetting
 }
 
 var _ DfsInterface = &dfs{}

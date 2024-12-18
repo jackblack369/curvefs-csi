@@ -77,7 +77,7 @@ func (r *BaseBuilder) genPodTemplate(baseCnGen func() corev1.Container) *corev1.
 	}
 }
 
-// genCommonPod generates a pod with common settings
+// genCommonPod generates a pod with common settings and env
 func (r *BaseBuilder) genCommonPod(cnGen func() corev1.Container) *corev1.Pod {
 	// gen again to update the mount pod spec
 	if err := config.GenPodAttrWithCfg(r.dfsSetting, nil); err != nil {
@@ -107,9 +107,10 @@ func (r *BaseBuilder) genCommonPod(cnGen func() corev1.Container) *corev1.Pod {
 			},
 		},
 	}}
+	// transfer mountOptions into to pod's env (mountOptions->patch.env->Attr.env)
 	pod.Spec.Containers[0].Env = r.dfsSetting.Attr.Env
 	pod.Spec.Containers[0].Resources = r.dfsSetting.Attr.Resources
-	// TODO erase
+	// erase
 	// if image support passFd from csi, do not set umount preStop
 	// if r.dfsSetting.Attr.Lifecycle == nil {
 	// 	if !util.SupportFusePass(pod.Spec.Containers[0].Image) || config.Webhook {
@@ -146,13 +147,14 @@ func (r *BaseBuilder) genCommonPod(cnGen func() corev1.Container) *corev1.Pod {
 	return pod
 }
 
-// genMountCommand generates mount command
-func (r *BaseBuilder) genMountCommand() string {
+// genMountFSCommand generates mount command
+func (r *BaseBuilder) genMountFSCommand() string {
 	cmd := ""
-	options := r.dfsSetting.Options
+	options := r.dfsSetting.MountOptions
+	klog.V(6).Infof("dfs setting opitions:%#v", options)
 
 	klog.Infof("Mount source:%s, mountPath:%s", util.StripPasswd(r.dfsSetting.Source), r.dfsSetting.MountPath)
-	mountArgs := []string{"exec", config.CliPath, "${metaurl}", security.EscapeBashStr(r.dfsSetting.MountPath)}
+	mountArgs := []string{"exec", config.DfsCMDPath, "${metaurl}", security.EscapeBashStr(r.dfsSetting.MountPath)}
 	if !util.ContainsPrefix(options, "metrics=") {
 		if r.dfsSetting.Attr.HostNetwork {
 			// Pick up a random (useable) port for hostNetwork MountPods.
@@ -167,8 +169,9 @@ func (r *BaseBuilder) genMountCommand() string {
 	return util.QuoteForShell(cmd)
 }
 
-// genInitCommand generates init command
-func (r *BaseBuilder) genInitCommand() string {
+// genInitFSCommand generates init command
+func (r *BaseBuilder) genInitFSCommand() string {
+
 	formatCmd := r.dfsSetting.FormatCmd
 	if r.dfsSetting.EncryptRsaKey != "" {
 		formatCmd = formatCmd + " --encrypt-rsa-key=/root/.rsa/rsa-key.pem"
@@ -184,7 +187,7 @@ func (r *BaseBuilder) genInitCommand() string {
 func (r *BaseBuilder) getQuotaPath() string {
 	quotaPath := r.dfsSetting.SubPath
 	var subdir string
-	for _, o := range r.dfsSetting.Options {
+	for _, o := range r.dfsSetting.MountOptions {
 		pair := strings.Split(o, "=")
 		if len(pair) != 2 {
 			continue
@@ -201,7 +204,7 @@ func (r *BaseBuilder) overwriteSubdirWithSubPath() {
 	if r.dfsSetting.SubPath != "" {
 		options := make([]string, 0)
 		subdir := r.dfsSetting.SubPath
-		for _, option := range r.dfsSetting.Options {
+		for _, option := range r.dfsSetting.MountOptions {
 			if strings.HasPrefix(option, "subdir=") {
 				s := strings.Split(option, "=")
 				if len(s) != 2 {
@@ -214,15 +217,15 @@ func (r *BaseBuilder) overwriteSubdirWithSubPath() {
 			}
 			options = append(options, option)
 		}
-		r.dfsSetting.Options = append(options, fmt.Sprintf("subdir=%s", subdir))
+		r.dfsSetting.MountOptions = append(options, fmt.Sprintf("subdir=%s", subdir))
 	}
 }
 
 // genJobCommand generates job command
 func (r *BaseBuilder) getJobCommand() string {
 	var cmd string
-	options := util.StripReadonlyOption(r.dfsSetting.Options)
-	args := []string{config.CliPath, "${metaurl}", "/mnt/dfs"}
+	options := util.StripReadonlyOption(r.dfsSetting.MountOptions)
+	args := []string{config.DfsCMDPath, "${metaurl}", "/mnt/dfs"}
 	if len(options) != 0 {
 		args = append(args, "-o", security.EscapeBashStr(strings.Join(options, ",")))
 	}
@@ -233,7 +236,7 @@ func (r *BaseBuilder) getJobCommand() string {
 // genMetricsPort generates metrics port
 func (r *BaseBuilder) genMetricsPort() int32 {
 	port := int64(9567)
-	options := r.dfsSetting.Options
+	options := r.dfsSetting.MountOptions
 
 	for _, option := range options {
 		if strings.HasPrefix(option, "metrics=") {

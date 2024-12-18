@@ -50,7 +50,7 @@ func (r *JobBuilder) NewJobForCreateVolume() *batchv1.Job {
 	jobName := GenJobNameByVolumeId(r.dfsSetting.VolumeId) + "-createvol"
 	job := r.newJob(jobName)
 	jobCmd := r.getCreateVolumeCmd()
-	initCmd := r.genInitCommand()
+	initCmd := r.genInitFSCommand()
 	cmd := strings.Join([]string{initCmd, jobCmd}, "\n")
 	job.Spec.Template.Spec.Containers[0].Command = []string{"sh", "-c", cmd}
 
@@ -62,7 +62,7 @@ func (r *JobBuilder) NewJobForDeleteVolume() *batchv1.Job {
 	jobName := GenJobNameByVolumeId(r.dfsSetting.VolumeId) + "-delvol"
 	job := r.newJob(jobName)
 	jobCmd := r.getDeleteVolumeCmd()
-	initCmd := r.genInitCommand()
+	initCmd := r.genInitFSCommand()
 	cmd := strings.Join([]string{initCmd, jobCmd}, "\n")
 	job.Spec.Template.Spec.Containers[0].Command = []string{"sh", "-c", cmd}
 	klog.Info("delete volume job command:", jobCmd)
@@ -157,7 +157,7 @@ func (r *JobBuilder) getCreateVolumeCmd() string {
 
 func (r *JobBuilder) getDeleteVolumeCmd() string {
 	cmd := r.getJobCommand()
-	dfsPath := config.CliPath
+	dfsPath := config.DfsCMDPath
 	subpath := security.EscapeBashStr(r.dfsSetting.SubPath)
 	// TODO modify the command to delete the volume
 	return fmt.Sprintf("%s && if [ -d /mnt/dfs/%s ]; then %s rmr /mnt/dfs/%s; fi;", cmd, subpath, dfsPath, subpath)

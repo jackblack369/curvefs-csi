@@ -118,12 +118,12 @@ func (d *nodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		// get mountOptions from PV.spec.mountOptions or StorageClass.mountOptions
 		options = append(options, m.MountFlags...)
 	}
-
-	log.Info("get volume context", "volCtx", volCtx)
+	klog.Infof("get volume context, volCtx:%#v", volCtx)
 
 	secrets := req.Secrets
-	mountOptions := []string{}
+
 	// get mountOptions from PV.volumeAttributes or StorageClass.parameters
+	mountOptions := []string{}
 	if opts, ok := volCtx["mountOptions"]; ok {
 		mountOptions = strings.Split(opts, ",")
 	}
@@ -166,7 +166,7 @@ func (d *nodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		}
 		quotaPath := settings.SubPath
 		var subdir string
-		for _, o := range settings.Options {
+		for _, o := range settings.MountOptions {
 			pair := strings.Split(o, "=")
 			if len(pair) != 2 {
 				continue
