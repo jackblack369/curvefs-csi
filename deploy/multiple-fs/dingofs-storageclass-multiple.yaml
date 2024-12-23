@@ -4,7 +4,7 @@ metadata:
   name: dingofs-sc-1
 provisioner: csi.dingofs.com
 allowVolumeExpansion: false
-reclaimPolicy: Delete
+reclaimPolicy: Retain
 parameters:
   csi.storage.k8s.io/provisioner-secret-name: dingofs-secret-1
   csi.storage.k8s.io/provisioner-secret-namespace: dingofs
@@ -22,7 +22,7 @@ metadata:
   name: dingofs-sc-2
 provisioner: csi.dingofs.com
 allowVolumeExpansion: false
-reclaimPolicy: Delete
+reclaimPolicy: Retain
 parameters:
   csi.storage.k8s.io/provisioner-secret-name: dingofs-secret-2
   csi.storage.k8s.io/provisioner-secret-namespace: dingofs

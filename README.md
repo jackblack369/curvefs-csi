@@ -75,5 +75,5 @@ you may lose this part of data. Remount will crash, because you only have meta b
 - more create/mount options support (require future curvefs support)
 - move sensitive info like s3 ak/sk to secret
 - subpath mount support (require future curvefs support)
-- move every mount into a seperate pod, inspired by juicefs-csi
+- move every mount into a seperate pod, inspired by dingofs-csi
 - quota(bytes) support (require future curvefs support)
