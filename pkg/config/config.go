@@ -123,4 +123,14 @@ const (
 	injectSidecar        = ".sidecar" + inject
 	InjectSidecarDone    = "done" + injectSidecar
 	InjectSidecarDisable = "disable" + injectSidecar
+
+	// CSI Secret
+	ProvisionerSecretName           = "csi.storage.k8s.io/provisioner-secret-name"
+	ProvisionerSecretNamespace      = "csi.storage.k8s.io/provisioner-secret-namespace"
+	PublishSecretName               = "csi.storage.k8s.io/node-publish-secret-name"
+	PublishSecretNamespace          = "csi.storage.k8s.io/node-publish-secret-namespace"
+	ControllerExpandSecretName      = "csi.storage.k8s.io/controller-expand-secret-name"
+	ControllerExpandSecretNamespace = "csi.storage.k8s.io/controller-expand-secret-namespace"
+
+	ResyncPeriod = 1000 * time.Millisecond
 )

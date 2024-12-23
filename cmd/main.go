@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
 	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
@@ -74,7 +75,7 @@ func main() {
 	cmd.PersistentFlags().BoolVar(&formatInPod, "format-in-pod", false, "Put format/auth in pod")
 
 	cmd.PersistentFlags().BoolVar(&leaderElection, "leader-election", false, "Enables leader election. If leader election is enabled, additional RBAC rules are required. ")
-	cmd.PersistentFlags().StringVar(&leaderElectionNamespace, "leader-election-namespace", "", "Namespace where the leader election resource lives. Defaults to the pod namespace if not set.")
+	cmd.PersistentFlags().StringVar(&leaderElectionNamespace, "leader-election-namespace", config.Namespace, "Namespace where the leader election resource lives. Defaults to the pod namespace if not set.")
 	cmd.PersistentFlags().DurationVar(&leaderElectionLeaseDuration, "leader-election-lease-duration", 15*time.Second, "Duration, in seconds, that non-leader candidates will wait to force acquire leadership. Defaults to 15 seconds.")
 
 	// controller flags

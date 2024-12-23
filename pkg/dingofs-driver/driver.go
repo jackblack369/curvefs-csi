@@ -20,6 +20,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc"
@@ -27,7 +28,6 @@ import (
 
 	"github.com/jackblack369/dingofs-csi/pkg/config"
 	"github.com/jackblack369/dingofs-csi/pkg/k8sclient"
-	k8s "github.com/jackblack369/dingofs-csi/pkg/k8sclient"
 	"github.com/jackblack369/dingofs-csi/pkg/util"
 )
 
@@ -39,13 +39,17 @@ var (
 type Driver struct {
 	controllerService
 	nodeService
+	provisionerService
 
 	srv      *grpc.Server
 	endpoint string
 }
 
 // NewDriver creates a new driver
-func NewDriver(endpoint string, nodeID string) (*Driver, error) {
+func NewDriver(endpoint string, nodeID string,
+	leaderElection bool,
+	leaderElectionNamespace string,
+	leaderElectionLeaseDuration time.Duration) (*Driver, error) {
 	// klog.Infof("get version info, driver:%s, verison:%s, commit:%s, date:%s", config.DriverName, driverVersion, gitCommit, buildDate)
 
 	var k8sClient *k8sclient.K8sClient
@@ -65,15 +69,24 @@ func NewDriver(endpoint string, nodeID string) (*Driver, error) {
 		return nil, err
 	}
 
+	ps, err := newProvisionerService(k8sClient, leaderElection, leaderElectionNamespace, leaderElectionLeaseDuration)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Driver{
-		controllerService: cs,
-		nodeService:       *ns,
-		endpoint:          endpoint,
+		controllerService:  cs,
+		nodeService:        *ns,
+		provisionerService: ps,
+		endpoint:           endpoint,
 	}, nil
 }
 
 // Run runs the server
 func (d *Driver) Run() error {
+	if config.Provisioner {
+		go d.provisionerService.Run(context.Background())
+	}
 
 	scheme, addr, err := util.ParseEndpoint(d.endpoint)
 	if err != nil {
@@ -120,7 +133,7 @@ func parseNodeConfig() {
 	config.Namespace = os.Getenv("DINGOFS_MOUNT_NAMESPACE")
 	config.PodName = os.Getenv("POD_NAME")
 
-	k8sclient, err := k8s.NewClient()
+	k8sclient, err := k8sclient.NewClient()
 	if err != nil {
 		klog.ErrorS(err, "Can't get k8s client")
 		os.Exit(1)

@@ -43,7 +43,8 @@ updateFuseConfig
 
 ret=$?
 if [ $ret -eq 0 ]; then
-    $g_entrypoint "${args[@]}"
+    echo "$g_entrypoint $@"
+    $g_entrypoint "$@"
     ret=$?
     exit $ret
 else

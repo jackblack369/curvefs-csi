@@ -61,11 +61,8 @@ func NewMountManager(
 	}
 	// clientConfig := &
 	mgr, err := ctrl.NewManager(conf, ctrl.Options{
-		Scheme:                  scheme,
-		LeaderElection:          leaderElection,
-		LeaderElectionNamespace: leaderElectionNamespace,
-		LeaderElectionID:        "mount.dingofs.com",
-		LeaseDuration:           &leaderElectionLeaseDuration,
+		Scheme:           scheme,
+		LeaderElectionID: "mount.dingofs.com",
 		NewCache: func(restConf *rest.Config, opts cache.Options) (cache.Cache, error) {
 			opts.Scheme = scheme
 			opts.DefaultLabelSelector = labels.SelectorFromSet(map[string]string{

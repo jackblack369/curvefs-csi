@@ -137,7 +137,7 @@ func nodeRun(ctx context.Context) {
 		klog.Info("Pod Reconciler Started")
 	}
 
-	drv, err := dingofsdriver.NewDriver(endpoint, nodeID)
+	drv, err := dingofsdriver.NewDriver(endpoint, nodeID, leaderElection, leaderElectionNamespace, leaderElectionLeaseDuration)
 	if err != nil {
 		klog.ErrorS(err, "fail to create driver")
 		os.Exit(1)
